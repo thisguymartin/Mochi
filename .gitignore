@@ -1,0 +1,31 @@
+# Binary
+ralphy
+
+# Worktrees
+.worktrees/
+
+# Manifest
+.ralphy_manifest.json
+
+# Logs
+logs/*.log
+
+# Go
+*.test
+*.out
+vendor/
+
+# Environment
+.env
+*.env.local
+config/local.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
