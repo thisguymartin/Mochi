@@ -86,6 +86,16 @@ func init() {
 	rootCmd.Flags().StringVar(&cfg.BaseBranch, "base-branch", defaults.BaseBranch,
 		"Branch to base each worktree on")
 
+	// Ralph Loop
+	rootCmd.Flags().StringVar(&cfg.ReviewerModel, "reviewer-model", "",
+		"Model for the reviewer agent — enables the Ralph Loop when set (e.g. claude-opus-4-6)")
+	rootCmd.Flags().IntVar(&cfg.MaxIterations, "max-iterations", defaults.MaxIterations,
+		"Maximum worker iterations per task (default: 1, no loop)")
+	rootCmd.Flags().StringVar(&cfg.OutputMode, "output-mode", defaults.OutputMode,
+		"Output mode: pr | research-report | audit | knowledge-base | issue | file")
+	rootCmd.Flags().StringVar(&cfg.OutputDir, "output-dir", defaults.OutputDir,
+		"Directory for file/report outputs (used with --output-mode file or research-report)")
+
 	// Apply non-flag defaults that don't need user exposure
 	cfg.BranchPrefix = defaults.BranchPrefix
 	cfg.WorktreeDir = defaults.WorktreeDir

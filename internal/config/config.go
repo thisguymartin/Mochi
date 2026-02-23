@@ -23,17 +23,26 @@ type Config struct {
 
 	// Output
 	LogDir string
+
+	// Ralph Loop
+	ReviewerModel string // empty = no reviewer / no loop
+	MaxIterations int    // default: 1 (single pass, no loop)
+	OutputMode    string // pr | research-report | audit | knowledge-base | issue | file
+	OutputDir     string // directory for file/report outputs
 }
 
 // Default returns a Config with sensible defaults.
 func Default() Config {
 	return Config{
-		Model:        "claude-sonnet-4-6",
-		PRDFile:      "PRD.md",
-		BaseBranch:   "main",
-		BranchPrefix: "feature",
-		WorktreeDir:  ".worktrees",
-		LogDir:       "logs",
-		Timeout:      300,
+		Model:         "claude-sonnet-4-6",
+		PRDFile:       "PRD.md",
+		BaseBranch:    "main",
+		BranchPrefix:  "feature",
+		WorktreeDir:   ".worktrees",
+		LogDir:        "logs",
+		Timeout:       300,
+		MaxIterations: 1,
+		OutputMode:    "pr",
+		OutputDir:     "output",
 	}
 }

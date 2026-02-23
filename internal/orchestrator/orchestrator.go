@@ -9,9 +9,19 @@ import (
 	"github.com/thisguymartin/ai-forge/internal/agent"
 	"github.com/thisguymartin/ai-forge/internal/config"
 	gh "github.com/thisguymartin/ai-forge/internal/github"
+	"github.com/thisguymartin/ai-forge/internal/memory"
+	"github.com/thisguymartin/ai-forge/internal/output"
 	"github.com/thisguymartin/ai-forge/internal/parser"
+	"github.com/thisguymartin/ai-forge/internal/reviewer"
 	"github.com/thisguymartin/ai-forge/internal/worktree"
 )
+
+// LoopResult captures the outcome of a full Ralph Loop run for one task.
+type LoopResult struct {
+	FinalWorkerResult agent.Result
+	Iterations        int
+	FinalMemory       memory.Context
+}
 
 // Run is the main entry point for a MOCHI execution cycle.
 // It orchestrates parsing, worktree creation, agent invocation, PR creation, and cleanup.
@@ -80,24 +90,19 @@ func Run(cfg config.Config) error {
 		printSuccess(fmt.Sprintf("%-30s (%s)", entry.Path, entry.Branch))
 	}
 
-	// ── 6. Invoke agents ───────────────────────────────────────────────────
+	// ── 6. Invoke agents (via Ralph Loop) ──────────────────────────────────
 	printSection("Invoking agents...")
 	results := make([]agent.Result, len(tasks))
+	loopResults := make([]LoopResult, len(tasks))
 
 	if cfg.Sequential {
 		for i, t := range tasks {
 			printInfo(fmt.Sprintf("⟳  %-28s [%s]", t.Slug, t.Model))
 			_ = wm.UpdateStatus(t.Slug, "running")
-			results[i] = agent.Invoke(agent.InvokeOptions{
-				WorktreePath: entries[i].Path,
-				Task:         t.Description,
-				Model:        t.Model,
-				Timeout:      cfg.Timeout,
-				LogDir:       cfg.LogDir,
-				Verbose:      cfg.Verbose,
-			}, t.Slug)
+			loopResults[i] = runRalphLoop(cfg, t, entries[i])
+			results[i] = loopResults[i].FinalWorkerResult
 			_ = wm.UpdateStatus(t.Slug, statusStr(results[i].Success))
-			printResult(results[i])
+			printLoopResult(loopResults[i])
 		}
 	} else {
 		var wg sync.WaitGroup
@@ -107,23 +112,42 @@ func Run(cfg config.Config) error {
 				defer wg.Done()
 				printInfo(fmt.Sprintf("⟳  %-28s [%s]", task.Slug, task.Model))
 				_ = wm.UpdateStatus(task.Slug, "running")
-				results[idx] = agent.Invoke(agent.InvokeOptions{
-					WorktreePath: entry.Path,
-					Task:         task.Description,
-					Model:        task.Model,
-					Timeout:      cfg.Timeout,
-					LogDir:       cfg.LogDir,
-					Verbose:      cfg.Verbose,
-				}, task.Slug)
+				loopResults[idx] = runRalphLoop(cfg, task, entry)
+				results[idx] = loopResults[idx].FinalWorkerResult
 				_ = wm.UpdateStatus(task.Slug, statusStr(results[idx].Success))
-				printResult(results[idx])
+				printLoopResult(loopResults[idx])
 			}(i, t, entries[i])
 		}
 		wg.Wait()
 	}
 
-	// ── 7. Create PRs ──────────────────────────────────────────────────────
-	if cfg.CreatePRs {
+	// ── 7. Post-loop output dispatch ───────────────────────────────────────
+	if cfg.OutputMode != "" && cfg.OutputMode != string(output.ModePR) {
+		printSection(fmt.Sprintf("Writing output (%s)...", cfg.OutputMode))
+		for i, t := range tasks {
+			if !results[i].Success {
+				printWarn(fmt.Sprintf("Skipping output for %-24s (agent failed)", t.Slug))
+				continue
+			}
+			if err := output.Handle(output.Options{
+				Mode:         output.Mode(cfg.OutputMode),
+				Task:         t,
+				Entry:        entries[i],
+				WorkerResult: results[i],
+				MemCtx:       loopResults[i].FinalMemory,
+				Iterations:   loopResults[i].Iterations,
+				OutputDir:    cfg.OutputDir,
+				RepoRoot:     repoRoot,
+			}); err != nil {
+				printFail(fmt.Sprintf("Output failed for %s: %v", t.Slug, err))
+			} else {
+				printSuccess(fmt.Sprintf("%-30s written to %s/", t.Slug, cfg.OutputDir))
+			}
+		}
+	}
+
+	// ── 8. Create PRs ──────────────────────────────────────────────────────
+	if cfg.CreatePRs && cfg.OutputMode == string(output.ModePR) {
 		printSection("Creating pull requests...")
 		for i, t := range tasks {
 			if !results[i].Success {
@@ -134,11 +158,16 @@ func Run(cfg config.Config) error {
 				printFail(fmt.Sprintf("Push failed for %s: %v", t.Slug, err))
 				continue
 			}
+			// Use the last iteration log if available, else fallback to base slug
+			logPath := filepath.Join(cfg.LogDir, t.Slug+".log")
+			if loopResults[i].Iterations > 1 {
+				logPath = filepath.Join(cfg.LogDir, fmt.Sprintf("%s-iter%d.log", t.Slug, loopResults[i].Iterations))
+			}
 			url, err := gh.CreatePR(gh.PROptions{
 				Slug:     t.Slug,
 				Branch:   entries[i].Branch,
 				Task:     t.Description,
-				LogPath:  filepath.Join(cfg.LogDir, t.Slug+".log"),
+				LogPath:  logPath,
 				RepoRoot: repoRoot,
 			})
 			if err != nil {
@@ -149,7 +178,7 @@ func Run(cfg config.Config) error {
 		}
 	}
 
-	// ── 8. Cleanup worktrees ───────────────────────────────────────────────
+	// ── 9. Cleanup worktrees ───────────────────────────────────────────────
 	if !cfg.KeepWorktrees {
 		printSection("Cleaning up worktrees...")
 		for _, t := range tasks {
@@ -159,7 +188,7 @@ func Run(cfg config.Config) error {
 		}
 	}
 
-	// ── 9. Summary ─────────────────────────────────────────────────────────
+	// ── 10. Summary ────────────────────────────────────────────────────────
 	printSummary(results)
 
 	// Exit non-zero if any task failed (CI-compatible)
@@ -170,6 +199,117 @@ func Run(cfg config.Config) error {
 	}
 
 	return nil
+}
+
+// loopEnabled returns true when the Ralph Loop should run more than once
+// or when a reviewer is configured.
+func loopEnabled(cfg config.Config) bool {
+	return cfg.ReviewerModel != "" || cfg.MaxIterations > 1
+}
+
+// runRalphLoop executes the worker (and optionally reviewer) loop for a single task.
+// With default config (MaxIterations=1, no ReviewerModel) it behaves identically to
+// the previous single-pass agent.Invoke call.
+func runRalphLoop(cfg config.Config, task parser.Task, entry *worktree.Entry) LoopResult {
+	maxIter := cfg.MaxIterations
+	if maxIter < 1 {
+		maxIter = 1
+	}
+
+	var lastResult agent.Result
+	var lastMemCtx memory.Context
+	iterations := 0
+
+	for iter := 1; iter <= maxIter; iter++ {
+		iterations = iter
+
+		// Load memory from previous iteration (empty on first pass)
+		memCtx := memory.Load(entry.Path)
+		lastMemCtx = memCtx
+
+		if cfg.Verbose && loopEnabled(cfg) {
+			printInfo(fmt.Sprintf("  [loop] %s iteration %d/%d", task.Slug, iter, maxIter))
+		}
+
+		// Run worker agent
+		result := agent.Invoke(agent.InvokeOptions{
+			WorktreePath:  entry.Path,
+			Task:          task.Description,
+			Model:         task.Model,
+			Timeout:       cfg.Timeout,
+			LogDir:        cfg.LogDir,
+			Verbose:       cfg.Verbose,
+			Iteration:     iter,
+			MaxIterations: maxIter,
+			MemoryContext: memCtx,
+		}, task.Slug)
+		lastResult = result
+
+		// Determine status for memory write
+		status := "in-progress"
+		if !result.Success {
+			status = "failed"
+		}
+
+		reviewerNotes := ""
+		done := false
+
+		// Run reviewer if configured and worker succeeded
+		if cfg.ReviewerModel != "" && result.Success {
+			decision, err := reviewer.Review(reviewer.Options{
+				WorktreePath: entry.Path,
+				Task:         task.Description,
+				Model:        cfg.ReviewerModel,
+				WorkerOutput: result.Output,
+				Iteration:    iter,
+				MaxIter:      maxIter,
+				Timeout:      cfg.Timeout,
+				Verbose:      cfg.Verbose,
+				LogDir:       cfg.LogDir,
+			})
+			if err != nil {
+				printWarn(fmt.Sprintf("reviewer error for %s iter %d: %v", task.Slug, iter, err))
+			} else {
+				reviewerNotes = decision.Feedback
+				done = decision.Done
+			}
+		}
+
+		if result.Success && cfg.ReviewerModel == "" {
+			done = true
+		}
+		if !result.Success {
+			done = true // stop on agent failure
+		}
+
+		if done || iter == maxIter {
+			if done && result.Success {
+				status = "done"
+			}
+		}
+
+		// Write memory files after each iteration
+		_ = memory.Write(entry.Path, memory.IterationData{
+			Iteration:     iter,
+			Task:          task.Description,
+			WorkerOutput:  result.Output,
+			ReviewerNotes: reviewerNotes,
+			Status:        status,
+		})
+
+		// Reload memory context so LoopResult reflects latest state
+		lastMemCtx = memory.Load(entry.Path)
+
+		if done {
+			break
+		}
+	}
+
+	return LoopResult{
+		FinalWorkerResult: lastResult,
+		Iterations:        iterations,
+		FinalMemory:       lastMemCtx,
+	}
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -221,10 +361,14 @@ func printDryRun(tasks []parser.Task, cfg config.Config) error {
 	fmt.Println(yellow("\n[MOCHI DRY RUN] The following would be executed:\n"))
 	for i, t := range tasks {
 		fmt.Printf("  Task %d: %q\n", i+1, t.Description)
-		fmt.Printf("    Branch:   %s/%s\n", cfg.BranchPrefix, t.Slug)
-		fmt.Printf("    Worktree: %s/%s\n", cfg.WorktreeDir, t.Slug)
-		fmt.Printf("    Model:    %s\n", t.Model)
-		fmt.Printf("    Log:      %s/%s.log\n\n", cfg.LogDir, t.Slug)
+		fmt.Printf("    Branch:      %s/%s\n", cfg.BranchPrefix, t.Slug)
+		fmt.Printf("    Worktree:    %s/%s\n", cfg.WorktreeDir, t.Slug)
+		fmt.Printf("    Model:       %s\n", t.Model)
+		fmt.Printf("    Log:         %s/%s.log\n", cfg.LogDir, t.Slug)
+		if cfg.ReviewerModel != "" {
+			fmt.Printf("    Reviewer:    %s (max %d iterations)\n", cfg.ReviewerModel, cfg.MaxIterations)
+		}
+		fmt.Printf("    Output mode: %s\n\n", cfg.OutputMode)
 	}
 	fmt.Println(yellow("No changes made."))
 	return nil
@@ -250,9 +394,14 @@ func printSummary(results []agent.Result) {
 	fmt.Println(bold("─────────────────────────────────────────────────"))
 }
 
-func printResult(r agent.Result) {
+func printLoopResult(lr LoopResult) {
+	r := lr.FinalWorkerResult
 	if r.Success {
-		printSuccess(fmt.Sprintf("%-30s done  (%.0fs)", r.Slug, r.Duration.Seconds()))
+		if lr.Iterations > 1 {
+			printSuccess(fmt.Sprintf("%-30s done  (%.0fs, %d iterations)", r.Slug, r.Duration.Seconds(), lr.Iterations))
+		} else {
+			printSuccess(fmt.Sprintf("%-30s done  (%.0fs)", r.Slug, r.Duration.Seconds()))
+		}
 	} else {
 		printFail(fmt.Sprintf("%-30s FAILED (%.0fs) — see %s", r.Slug, r.Duration.Seconds(), r.LogPath))
 	}
@@ -261,12 +410,12 @@ func printResult(r agent.Result) {
 // ── Terminal colors ────────────────────────────────────────────────────────
 
 const (
-	reset  = "\033[0m"
-	cRed   = "\033[31m"
-	cGreen = "\033[32m"
+	reset   = "\033[0m"
+	cRed    = "\033[31m"
+	cGreen  = "\033[32m"
 	cYellow = "\033[33m"
-	cBlue  = "\033[34m"
-	cBold  = "\033[1m"
+	cBlue   = "\033[34m"
+	cBold   = "\033[1m"
 )
 
 func red(s string) string    { return cRed + s + reset }

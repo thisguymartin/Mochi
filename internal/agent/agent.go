@@ -11,16 +11,21 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/thisguymartin/ai-forge/internal/memory"
 )
 
 // InvokeOptions configures a single agent invocation.
 type InvokeOptions struct {
-	WorktreePath string
-	Task         string
-	Model        string
-	Timeout      int
-	LogDir       string
-	Verbose      bool
+	WorktreePath  string
+	Task          string
+	Model         string
+	Timeout       int
+	LogDir        string
+	Verbose       bool
+	Iteration     int
+	MaxIterations int
+	MemoryContext memory.Context
 }
 
 // Result captures the outcome of a single agent run.
@@ -30,6 +35,7 @@ type Result struct {
 	Duration time.Duration
 	LogPath  string
 	Error    error
+	Output   string
 }
 
 const promptTmpl = `You are an AI coding agent working inside a git worktree.
@@ -38,6 +44,28 @@ Worktree path: {{.WorktreePath}}
 Current branch: {{.Branch}}
 
 Your task: {{.Task}}
+{{- if .HasMemory}}
+
+=== CONTEXT FROM PREVIOUS ITERATIONS ===
+{{- if .Feedback}}
+
+## Reviewer Feedback (address this first):
+{{.Feedback}}
+{{- end}}
+{{- if .Progress}}
+
+## Task Progress:
+{{.Progress}}
+{{- end}}
+{{- if .Agents}}
+
+## Agent Learnings:
+{{.Agents}}
+{{- end}}
+=== END CONTEXT ===
+
+IMPORTANT: You are on iteration {{.Iteration}} of {{.MaxIterations}}. Review the feedback above and address all noted issues before proceeding.
+{{- end}}
 
 Instructions:
 - Focus exclusively on the described task.
@@ -48,9 +76,15 @@ Instructions:
 Begin now.`
 
 type promptData struct {
-	WorktreePath string
-	Branch       string
-	Task         string
+	WorktreePath  string
+	Branch        string
+	Task          string
+	HasMemory     bool
+	Feedback      string
+	Progress      string
+	Agents        string
+	Iteration     int
+	MaxIterations int
 }
 
 // providerFor returns "gemini" if the model name starts with "gemini-",
@@ -64,8 +98,8 @@ func providerFor(model string) string {
 
 // buildCommand constructs the provider-specific exec.Cmd for non-interactive use.
 //
-//   claude  → claude --dangerously-skip-permissions -p <prompt>
-//   gemini  → gemini --model <model> -p <prompt>
+//	claude  → claude --dangerously-skip-permissions -p <prompt>
+//	gemini  → gemini --model <model> -p <prompt>
 func buildCommand(ctx context.Context, model, prompt string) *exec.Cmd {
 	switch providerFor(model) {
 	case "gemini":
@@ -79,7 +113,16 @@ func buildCommand(ctx context.Context, model, prompt string) *exec.Cmd {
 // It writes all output to a log file and returns a Result.
 func Invoke(opts InvokeOptions, slug string) Result {
 	start := time.Now()
-	logPath := filepath.Join(opts.LogDir, slug+".log")
+
+	iteration := opts.Iteration
+	if iteration == 0 {
+		iteration = 1
+	}
+	logSuffix := slug
+	if opts.MaxIterations > 1 {
+		logSuffix = fmt.Sprintf("%s-iter%d", slug, iteration)
+	}
+	logPath := filepath.Join(opts.LogDir, logSuffix+".log")
 
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
@@ -105,7 +148,8 @@ func Invoke(opts InvokeOptions, slug string) Result {
 	cmd := buildCommand(ctx, opts.Model, prompt)
 	cmd.Dir = opts.WorktreePath
 
-	writers := []io.Writer{logFile}
+	var outBuf bytes.Buffer
+	writers := []io.Writer{logFile, &outBuf}
 	if opts.Verbose {
 		writers = append(writers, os.Stdout)
 	}
@@ -117,21 +161,24 @@ func Invoke(opts InvokeOptions, slug string) Result {
 	duration := time.Since(start)
 	writeLogFooter(logFile, slug, opts.Model, duration, runErr)
 
+	output := outBuf.String()
+
 	if ctx.Err() == context.DeadlineExceeded {
 		return Result{
 			Slug:     slug,
 			Success:  false,
 			Duration: duration,
 			LogPath:  logPath,
+			Output:   output,
 			Error:    fmt.Errorf("agent timed out after %ds", opts.Timeout),
 		}
 	}
 
 	if runErr != nil {
-		return Result{Slug: slug, Success: false, Duration: duration, LogPath: logPath, Error: runErr}
+		return Result{Slug: slug, Success: false, Duration: duration, LogPath: logPath, Output: output, Error: runErr}
 	}
 
-	return Result{Slug: slug, Success: true, Duration: duration, LogPath: logPath}
+	return Result{Slug: slug, Success: true, Duration: duration, LogPath: logPath, Output: output}
 }
 
 func buildPrompt(opts InvokeOptions) (string, error) {
@@ -142,12 +189,29 @@ func buildPrompt(opts InvokeOptions) (string, error) {
 		return "", err
 	}
 
+	iteration := opts.Iteration
+	if iteration == 0 {
+		iteration = 1
+	}
+	maxIter := opts.MaxIterations
+	if maxIter == 0 {
+		maxIter = 1
+	}
+
+	data := promptData{
+		WorktreePath:  opts.WorktreePath,
+		Branch:        branch,
+		Task:          opts.Task,
+		HasMemory:     opts.MemoryContext.HasAny(),
+		Feedback:      opts.MemoryContext.Feedback,
+		Progress:      opts.MemoryContext.Progress,
+		Agents:        opts.MemoryContext.Agents,
+		Iteration:     iteration,
+		MaxIterations: maxIter,
+	}
+
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, promptData{
-		WorktreePath: opts.WorktreePath,
-		Branch:       branch,
-		Task:         opts.Task,
-	}); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return "", err
 	}
 
