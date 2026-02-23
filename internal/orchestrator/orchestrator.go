@@ -13,7 +13,7 @@ import (
 	"github.com/thisguymartin/ai-forge/internal/worktree"
 )
 
-// Run is the main entry point for a RALPHY execution cycle.
+// Run is the main entry point for a MOCHI execution cycle.
 // It orchestrates parsing, worktree creation, agent invocation, PR creation, and cleanup.
 func Run(cfg config.Config) error {
 	printBanner()
@@ -218,7 +218,7 @@ func statusStr(success bool) string {
 }
 
 func printDryRun(tasks []parser.Task, cfg config.Config) error {
-	fmt.Println(yellow("\n[RALPHY DRY RUN] The following would be executed:\n"))
+	fmt.Println(yellow("\n[MOCHI DRY RUN] The following would be executed:\n"))
 	for i, t := range tasks {
 		fmt.Printf("  Task %d: %q\n", i+1, t.Description)
 		fmt.Printf("    Branch:   %s/%s\n", cfg.BranchPrefix, t.Slug)
@@ -241,7 +241,7 @@ func printSummary(results []agent.Result) {
 	}
 	fmt.Println()
 	fmt.Println(bold("─────────────────────────────────────────────────"))
-	line := fmt.Sprintf("[RALPHY] Run complete: %d succeeded, %d failed", succeeded, failed)
+	line := fmt.Sprintf("[MOCHI] Run complete: %d succeeded, %d failed", succeeded, failed)
 	if failed == 0 {
 		fmt.Println(green(line))
 	} else {
@@ -277,12 +277,12 @@ func bold(s string) string   { return cBold + s + reset }
 
 func printBanner() {
 	fmt.Println(bold(blue("\n╔══════════════════════════════════════════════╗")))
-	fmt.Println(bold(blue("║   RALPHY — Multi-Task AI Coding Orchestrator  ║")))
+	fmt.Println(bold(blue("║    MOCHI — Multi-Task AI Coding Orchestrator  ║")))
 	fmt.Println(bold(blue("╚══════════════════════════════════════════════╝\n")))
 }
 
 func printSection(s string) {
-	fmt.Printf("\n%s %s\n", bold("[RALPHY]"), s)
+	fmt.Printf("\n%s %s\n", bold("[MOCHI]"), s)
 }
 
 func printInfo(s string) {

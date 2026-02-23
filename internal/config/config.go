@@ -1,6 +1,6 @@
 package config
 
-// Config holds all runtime configuration for a RALPHY run.
+// Config holds all runtime configuration for a MOCHI run.
 type Config struct {
 	// Input source
 	PRDFile     string

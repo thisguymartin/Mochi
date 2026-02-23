@@ -43,7 +43,7 @@ Instructions:
 - Focus exclusively on the described task.
 - Do not modify files unrelated to this task.
 - When finished, commit all changes with a clear, descriptive commit message.
-- If the task cannot be completed, create a file named RALPHY_NOTES.md explaining why.
+- If the task cannot be completed, create a file named MOCHI_NOTES.md explaining why.
 
 Begin now.`
 

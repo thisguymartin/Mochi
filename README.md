@@ -1,8 +1,8 @@
-# RALPHY — Multi-Task AI Coding Orchestrator
+# MOCHI — Multi-Task AI Coding Orchestrator
 
 > From task file → git worktrees → AI agents → PRs
 
-RALPHY reads a markdown task list, spins up an **isolated git worktree per task**, invokes a Claude AI agent in each worktree **in parallel**, and optionally opens GitHub pull requests when agents finish.
+MOCHI reads a markdown task list, spins up an **isolated git worktree per task**, invokes a Claude AI agent in each worktree **in parallel**, and optionally opens GitHub pull requests when agents finish.
 
 ---
 
@@ -16,16 +16,16 @@ git commit --allow-empty -m "Initial commit"
 
 ```bash
 # Build
-go build -o ralphy .
+go build -o mochi .
 
 # Run with the sample PRD
-./ralphy --prd examples/PRD.md
+./mochi --prd examples/PRD.md
 
 # Dry-run first to preview
-./ralphy --prd examples/PRD.md --dry-run
+./mochi --prd examples/PRD.md --dry-run
 
 # Run and auto-open PRs
-./ralphy --prd examples/PRD.md --create-prs
+./mochi --prd examples/PRD.md --create-prs
 ```
 
 ---
@@ -94,19 +94,19 @@ The provider is auto-detected from the model name prefix (`claude-*` or `gemini-
 
 ### Sprint execution from PRD
 ```bash
-./ralphy --prd examples/PRD.md --create-prs
+./mochi --prd examples/PRD.md --create-prs
 ```
 Reads `examples/PRD.md`, spins up one worktree per task in parallel, runs agents, opens a PR per completed task.
 
 ### Pull tasks from a GitHub Issue
 ```bash
-./ralphy --issue 88 --create-prs
+./mochi --issue 88 --create-prs
 ```
 Fetches Issue #88 body via `gh`, parses the `## Tasks` section, runs agents, opens PRs.
 
 ### Debug a single failing task
 ```bash
-./ralphy --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose
+./mochi --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose
 ```
 Runs only `fix-mobile-navbar` sequentially with live output streamed to terminal.
 
@@ -118,13 +118,13 @@ Runs only `fix-mobile-navbar` sequentially with live output streamed to terminal
 - Add pagination [model:claude-sonnet-4-6]
 ```
 ```bash
-./ralphy --prd examples/PRD.md
+./mochi --prd examples/PRD.md
 ```
 Each task uses its annotated model — Opus for the hard stuff, Haiku for the trivial.
 
 ---
 
-## What RALPHY Creates
+## What MOCHI Creates
 
 During a run with 3 tasks:
 
@@ -139,7 +139,7 @@ logs/
 ├── add-dark-mode.log
 └── write-api-tests.log
 
-.ralphy_manifest.json      ← live task status tracking
+.mochi_manifest.json      ← live task status tracking
 ```
 
 Worktrees and the manifest are cleaned up at the end of each run unless `--keep-worktrees` is set.

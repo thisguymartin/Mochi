@@ -12,9 +12,9 @@ import (
 var cfg config.Config
 
 var rootCmd = &cobra.Command{
-	Use:   "ralphy",
+	Use:   "mochi",
 	Short: "Multi-task AI coding orchestrator",
-	Long: `RALPHY reads a task file (PRD.md or a GitHub Issue), spins up isolated
+	Long: `MOCHI reads a task file (PRD.md or a GitHub Issue), spins up isolated
 git worktrees for each task, invokes an AI agent in each worktree in parallel,
 and optionally opens GitHub pull requests for every completed task.
 
@@ -22,22 +22,22 @@ Supported providers (auto-detected from model name):
   claude  claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5
   gemini  gemini-2.5-pro  | gemini-2.0-flash   | gemini-1.5-pro`,
 	Example: `  # Run all tasks with the default Claude model
-  ralphy --prd examples/PRD.md
+  mochi --prd examples/PRD.md
 
   # Run with Gemini 2.5 Pro
-  ralphy --prd examples/PRD.md --model gemini-2.5-pro
+  mochi --prd examples/PRD.md --model gemini-2.5-pro
 
   # Run with Claude Opus and auto-create PRs
-  ralphy --prd examples/PRD.md --model claude-opus-4-6 --create-prs
+  mochi --prd examples/PRD.md --model claude-opus-4-6 --create-prs
 
   # Pull tasks from GitHub Issue #88 and create PRs
-  ralphy --issue 88 --create-prs
+  mochi --issue 88 --create-prs
 
   # Preview what would happen without making any changes
-  ralphy --prd examples/PRD.md --dry-run
+  mochi --prd examples/PRD.md --dry-run
 
   # Debug a single task sequentially with live output
-  ralphy --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose`,
+  mochi --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return orchestrator.Run(cfg)
 	},

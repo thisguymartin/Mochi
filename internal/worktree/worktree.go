@@ -10,9 +10,9 @@ import (
 	"sync"
 )
 
-const manifestFile = ".ralphy_manifest.json"
+const manifestFile = ".mochi_manifest.json"
 
-// Entry tracks a single git worktree created by RALPHY.
+// Entry tracks a single git worktree created by MOCHI.
 type Entry struct {
 	Slug   string `json:"slug"`
 	Path   string `json:"path"`
