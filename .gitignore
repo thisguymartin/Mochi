@@ -1,10 +1,12 @@
 # Binary
+build/mochi
 ralphy
 
 # Worktrees
 .worktrees/
 
 # Manifest
+.mochi_manifest.json
 .ralphy_manifest.json
 
 # Logs

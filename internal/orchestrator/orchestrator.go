@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/thisguymartin/ai-forge/internal/agent"
 	"github.com/thisguymartin/ai-forge/internal/config"
 	gh "github.com/thisguymartin/ai-forge/internal/github"
@@ -74,8 +75,6 @@ func checkDependencies(cfg config.Config) error {
 // Run is the main entry point for a MOCHI execution cycle.
 // It orchestrates parsing, worktree creation, agent invocation, PR creation, and cleanup.
 func Run(cfg config.Config) error {
-	printBanner()
-
 	// ── 0. Dependency checks ────────────────────────────────────────────────
 	if err := checkDependencies(cfg); err != nil {
 		return err
@@ -376,7 +375,27 @@ func resolveTaskFile(cfg config.Config) (path string, cleanup func(), err error)
 		}
 		return tmp, func() { os.Remove(tmp) }, nil
 	}
-	return cfg.PRDFile, nil, nil
+
+	// Auto-detect common task file names if the default is missing
+	if cfg.InputFile == "PRD.md" {
+		if _, err := os.Stat(cfg.InputFile); os.IsNotExist(err) {
+			candidates := []string{
+				"PLAN.md", "plan.md", "input.md", "tasks.md",
+				"docs/PLAN.md", "docs/PRD.md", "examples/PRD.md",
+			}
+			for _, c := range candidates {
+				if _, err := os.Stat(c); err == nil {
+					return c, nil, nil
+				}
+			}
+		}
+	}
+
+	if cfg.InputFile == "" {
+		return "", nil, fmt.Errorf("no task file specified — use --input <path>")
+	}
+
+	return cfg.InputFile, nil, nil
 }
 
 func filterBySlug(tasks []parser.Task, slug string) []parser.Task {
@@ -460,28 +479,19 @@ func printLoopResult(lr LoopResult) {
 	}
 }
 
-// ── Terminal colors ────────────────────────────────────────────────────────
+// ── Terminal styles (Lipgloss) ─────────────────────────────────────────────
 
-const (
-	reset   = "\033[0m"
-	cRed    = "\033[31m"
-	cGreen  = "\033[32m"
-	cYellow = "\033[33m"
-	cBlue   = "\033[34m"
-	cBold   = "\033[1m"
+var (
+	styleRed    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555"))
+	styleGreen  = lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B"))
+	styleYellow = lipgloss.NewStyle().Foreground(lipgloss.Color("#F1FA8C"))
+	styleBold   = lipgloss.NewStyle().Bold(true)
 )
 
-func red(s string) string    { return cRed + s + reset }
-func green(s string) string  { return cGreen + s + reset }
-func yellow(s string) string { return cYellow + s + reset }
-func blue(s string) string   { return cBlue + s + reset }
-func bold(s string) string   { return cBold + s + reset }
-
-func printBanner() {
-	fmt.Println(bold(blue("\n╔══════════════════════════════════════════════╗")))
-	fmt.Println(bold(blue("║    MOCHI — Multi-Task AI Coding Orchestrator  ║")))
-	fmt.Println(bold(blue("╚══════════════════════════════════════════════╝\n")))
-}
+func red(s string) string    { return styleRed.Render(s) }
+func green(s string) string  { return styleGreen.Render(s) }
+func yellow(s string) string { return styleYellow.Render(s) }
+func bold(s string) string   { return styleBold.Render(s) }
 
 func printSection(s string) {
 	fmt.Printf("\n%s %s\n", bold("[MOCHI]"), s)

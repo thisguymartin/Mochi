@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/thisguymartin/ai-forge/internal/config"
 	"github.com/thisguymartin/ai-forge/internal/orchestrator"
+	"github.com/thisguymartin/ai-forge/internal/tui"
 )
 
 var cfg config.Config
@@ -39,6 +40,7 @@ Supported providers (auto-detected from model name):
   # Debug a single task sequentially with live output
   mochi --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		tui.RunSplash()
 		return orchestrator.Run(cfg)
 	},
 }
@@ -55,8 +57,12 @@ func init() {
 	defaults := config.Default()
 
 	// Input source
-	rootCmd.Flags().StringVar(&cfg.PRDFile, "prd", defaults.PRDFile,
+	rootCmd.Flags().StringVarP(&cfg.InputFile, "input", "i", "",
 		"Path to the task file (markdown with a '## Tasks' section)")
+	rootCmd.Flags().StringVar(&cfg.InputFile, "prd", "",
+		"Alias for --input")
+	rootCmd.Flags().StringVar(&cfg.InputFile, "plan", "",
+		"Alias for --input")
 	rootCmd.Flags().IntVar(&cfg.IssueNumber, "issue", 0,
 		"Pull tasks from a GitHub Issue number (requires gh CLI)")
 

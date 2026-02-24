@@ -16,16 +16,16 @@ git commit --allow-empty -m "Initial commit"
 
 ```bash
 # Build
-go build -o mochi .
+make build
 
-# Run with the sample PRD
-./mochi --prd examples/PRD.md
+# Run (auto-detects PRD.md or PLAN.md)
+./mochi
 
-# Dry-run first to preview
-./mochi --prd examples/PRD.md --dry-run
+# Run with a specific plan
+./mochi --input docs/PLAN.md --dry-run
 
 # Run and auto-open PRs
-./mochi --prd examples/PRD.md --create-prs
+./mochi --create-prs
 ```
 
 ---
@@ -54,7 +54,7 @@ Create a markdown file with a `## Tasks` section. Each bullet becomes one task:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--prd <file>` | `PRD.md` | Task file to read |
+| `--input <file>` | `PRD.md` | Task file to read. Aliases: `--plan`, `--prd`. Auto-detects `PLAN.md`, `input.md`, etc. if default missing. |
 | `--issue <number>` | — | Pull tasks from a GitHub Issue |
 | `--model <model-id>` | `claude-sonnet-4-6` | Default Claude model |
 | `--create-prs` | `false` | Push branches and open GitHub PRs |
@@ -92,11 +92,11 @@ The provider is auto-detected from the model name prefix (`claude-*` or `gemini-
 
 ## Example Workflows
 
-### Sprint execution from PRD
+### Sprint execution from task file
 ```bash
-./mochi --prd examples/PRD.md --create-prs
+./mochi --create-prs
 ```
-Reads `examples/PRD.md`, spins up one worktree per task in parallel, runs agents, opens a PR per completed task.
+Auto-detects `PRD.md` or `PLAN.md`, spins up one worktree per task in parallel, runs agents, opens a PR per completed task.
 
 ### Pull tasks from a GitHub Issue
 ```bash
@@ -106,7 +106,7 @@ Fetches Issue #88 body via `gh`, parses the `## Tasks` section, runs agents, ope
 
 ### Debug a single failing task
 ```bash
-./mochi --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose
+./mochi --input examples/PRD.md --task fix-mobile-navbar --sequential --verbose
 ```
 Runs only `fix-mobile-navbar` sequentially with live output streamed to terminal.
 
@@ -118,7 +118,7 @@ Runs only `fix-mobile-navbar` sequentially with live output streamed to terminal
 - Add pagination [model:claude-sonnet-4-6]
 ```
 ```bash
-./mochi --prd examples/PRD.md
+./mochi --input examples/PRD.md
 ```
 Each task uses its annotated model — Opus for the hard stuff, Haiku for the trivial.
 

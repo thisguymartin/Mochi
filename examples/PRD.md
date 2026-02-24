@@ -1,6 +1,6 @@
 # Product Requirements Document
 
-Sprint tasks for RALPHY to execute. Add tasks under the `## Tasks` section.
+Sprint tasks for MOCHI to execute. Add tasks under the `## Tasks` section.
 Each task may optionally specify a model using `[model:...]`.
 Supported providers are auto-detected from the model name (claude-* or gemini-*).
 

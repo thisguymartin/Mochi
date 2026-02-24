@@ -3,7 +3,7 @@ package config
 // Config holds all runtime configuration for a MOCHI run.
 type Config struct {
 	// Input source
-	PRDFile     string
+	InputFile   string
 	IssueNumber int
 
 	// Execution
@@ -35,7 +35,7 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Model:         "claude-sonnet-4-6",
-		PRDFile:       "PRD.md",
+		InputFile:     "PRD.md",
 		BaseBranch:    "main",
 		BranchPrefix:  "feature",
 		WorktreeDir:   ".worktrees",
