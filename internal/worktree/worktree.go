@@ -74,6 +74,33 @@ func (m *Manager) Create(slug string) (*Entry, error) {
 	return entry, nil
 }
 
+// Prune runs `git worktree prune` to remove stale registrations and then
+// drops any manifest entries whose paths no longer exist on disk.
+func (m *Manager) Prune() ([]string, error) {
+	cmd := exec.Command("git", "worktree", "prune")
+	cmd.Dir = m.RepoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("git worktree prune failed: %w\n%s", err, string(out))
+	}
+
+	manifest, err := m.loadManifest()
+	if err != nil {
+		return nil, err
+	}
+
+	var pruned []string
+	for slug, entry := range manifest {
+		if _, statErr := os.Stat(entry.Path); os.IsNotExist(statErr) {
+			if err := m.removeEntry(slug); err != nil {
+				return pruned, err
+			}
+			pruned = append(pruned, slug)
+		}
+	}
+	return pruned, nil
+}
+
 // Destroy removes the worktree and deletes its branch.
 func (m *Manager) Destroy(slug string) error {
 	entry, err := m.GetEntry(slug)

@@ -8,7 +8,7 @@ help:
 	@echo "  make clean      Remove build artifacts and worktrees"
 
 build:
-	go build -o build/mochi main.go
+	go build -o bin/mochi main.go
 
 run:
 	go run main.go

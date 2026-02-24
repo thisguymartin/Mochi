@@ -8,6 +8,7 @@ import (
 	"github.com/thisguymartin/ai-forge/internal/config"
 	"github.com/thisguymartin/ai-forge/internal/orchestrator"
 	"github.com/thisguymartin/ai-forge/internal/tui"
+	"github.com/thisguymartin/ai-forge/internal/worktree"
 )
 
 var cfg config.Config
@@ -40,8 +41,43 @@ Supported providers (auto-detected from model name):
   # Debug a single task sequentially with live output
   mochi --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// If no flags are provided, show the splash and return an error
+		if cfg.InputFile == "" && cfg.IssueNumber == 0 {
+			tui.RunSplash()
+			return nil
+		}
 		tui.RunSplash()
 		return orchestrator.Run(cfg)
+	},
+}
+
+var pruneCmd = &cobra.Command{
+	Use:   "prune",
+	Short: "Remove stale worktree registrations and manifest entries",
+	Long: `Runs 'git worktree prune' to clear git's stale registrations, then removes
+any manifest entries whose paths no longer exist on disk.
+
+Use this after a crashed or interrupted run leaves orphaned worktree state.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		repoRoot, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		defaults := config.Default()
+		wm := worktree.NewManager(repoRoot, defaults.BaseBranch, defaults.BranchPrefix, defaults.WorktreeDir)
+		pruned, err := wm.Prune()
+		if err != nil {
+			return err
+		}
+		if len(pruned) == 0 {
+			fmt.Println("Nothing to prune.")
+		} else {
+			for _, slug := range pruned {
+				fmt.Printf("  pruned  %s\n", slug)
+			}
+			fmt.Printf("Pruned %d stale worktree(s).\n", len(pruned))
+		}
+		return nil
 	},
 }
 
@@ -57,11 +93,11 @@ func init() {
 	defaults := config.Default()
 
 	// Input source
-	rootCmd.Flags().StringVarP(&cfg.InputFile, "input", "i", "",
+	rootCmd.Flags().StringVarP(&cfg.InputFile, "input", "i", defaults.InputFile,
 		"Path to the task file (markdown with a '## Tasks' section)")
-	rootCmd.Flags().StringVar(&cfg.InputFile, "prd", "",
+	rootCmd.Flags().StringVar(&cfg.InputFile, "prd", defaults.InputFile,
 		"Alias for --input")
-	rootCmd.Flags().StringVar(&cfg.InputFile, "plan", "",
+	rootCmd.Flags().StringVar(&cfg.InputFile, "plan", defaults.InputFile,
 		"Alias for --input")
 	rootCmd.Flags().IntVar(&cfg.IssueNumber, "issue", 0,
 		"Pull tasks from a GitHub Issue number (requires gh CLI)")
@@ -106,4 +142,6 @@ func init() {
 	cfg.BranchPrefix = defaults.BranchPrefix
 	cfg.WorktreeDir = defaults.WorktreeDir
 	cfg.LogDir = defaults.LogDir
+
+	rootCmd.AddCommand(pruneCmd)
 }
