@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -88,4 +91,43 @@ func RunSplash() {
 	}
 	p := tea.NewProgram(newSplashModel())
 	_, _ = p.Run()
+}
+
+// mochiIconSmall is a compact pixel-art "M" used in the info panel.
+const mochiIconSmall = `█▄ ▄█
+█ ▀ █
+█   █
+█   █`
+
+// PrintInfo renders a static, single-shot info panel (no animation).
+// Modelled after the Claude Code startup display.
+func PrintInfo(version, model, dir string) {
+	icon := lipgloss.NewStyle().
+		Foreground(ColorPrimary).
+		Render(mochiIconSmall)
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF"))
+	mutedStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+
+	title := titleStyle.Render("MOCHI") + " " + mutedStyle.Render("v"+version)
+	sub := mutedStyle.Render(model + " · Multi-Task AI Coding Orchestrator")
+	cwd := mutedStyle.Render(shortenHome(dir))
+
+	info := lipgloss.NewStyle().
+		PaddingLeft(2).
+		Render(lipgloss.JoinVertical(lipgloss.Left, title, sub, cwd))
+
+	content := lipgloss.JoinHorizontal(lipgloss.Center, icon, info)
+	fmt.Println(BoxStyle.Render(content))
+}
+
+func shortenHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, home) {
+		return "~" + filepath.ToSlash(path[len(home):])
+	}
+	return path
 }

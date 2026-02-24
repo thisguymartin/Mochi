@@ -11,6 +11,8 @@ import (
 	"github.com/thisguymartin/ai-forge/internal/worktree"
 )
 
+const Version = "0.1.0"
+
 var cfg config.Config
 
 var rootCmd = &cobra.Command{
@@ -41,9 +43,11 @@ Supported providers (auto-detected from model name):
   # Debug a single task sequentially with live output
   mochi --prd examples/PRD.md --task fix-mobile-navbar --sequential --verbose`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// If no flags are provided, show the splash and return an error
-		if cfg.InputFile == "" && cfg.IssueNumber == 0 {
-			tui.RunSplash()
+		// If no task source was explicitly provided, show the info panel and exit.
+		hasInput := cmd.Flags().Changed("prd") || cmd.Flags().Changed("input") || cmd.Flags().Changed("plan")
+		if !hasInput && cfg.IssueNumber == 0 {
+			cwd, _ := os.Getwd()
+			tui.PrintInfo(Version, cfg.Model, cwd)
 			return nil
 		}
 		tui.RunSplash()
