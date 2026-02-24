@@ -17,12 +17,12 @@ import (
 type Mode string
 
 const (
-	ModePR            Mode = "pr"
+	ModePR             Mode = "pr"
 	ModeResearchReport Mode = "research-report"
-	ModeAudit         Mode = "audit"
-	ModeKnowledgeBase Mode = "knowledge-base"
-	ModeIssue         Mode = "issue"
-	ModeFile          Mode = "file"
+	ModeAudit          Mode = "audit"
+	ModeKnowledgeBase  Mode = "knowledge-base"
+	ModeIssue          Mode = "issue"
+	ModeFile           Mode = "file"
 )
 
 // ValidMode returns true if m is a known output mode.
@@ -107,7 +107,11 @@ func handleResearchReport(opts Options) error {
 func buildFileContent(opts Options) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Task Output: %s\n\n", opts.Task.Slug)
-	fmt.Fprintf(&b, "**Task:** %s\n\n", opts.Task.Description)
+	fullTask := opts.Task.Title
+	if opts.Task.Description != "" {
+		fullTask += "\n\n" + opts.Task.Description
+	}
+	fmt.Fprintf(&b, "**Task:** %s\n\n", fullTask)
 	fmt.Fprintf(&b, "**Model:** %s\n\n", opts.Task.Model)
 	fmt.Fprintf(&b, "**Iterations:** %d\n\n", opts.Iterations)
 	fmt.Fprintf(&b, "**Generated:** %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
@@ -121,7 +125,11 @@ func buildFileContent(opts Options) string {
 func buildResearchReportContent(opts Options) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Research Report: %s\n\n", opts.Task.Slug)
-	fmt.Fprintf(&b, "**Task:** %s\n\n", opts.Task.Description)
+	fullTask := opts.Task.Title
+	if opts.Task.Description != "" {
+		fullTask += "\n\n" + opts.Task.Description
+	}
+	fmt.Fprintf(&b, "**Task:** %s\n\n", fullTask)
 	fmt.Fprintf(&b, "**Model:** %s\n\n", opts.Task.Model)
 	fmt.Fprintf(&b, "**Iterations completed:** %d\n\n", opts.Iterations)
 	fmt.Fprintf(&b, "**Generated:** %s\n\n", time.Now().Format("2006-01-02 15:04:05"))

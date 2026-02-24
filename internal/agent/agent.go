@@ -243,3 +243,64 @@ func writeLogFooter(w io.Writer, slug, model string, d time.Duration, err error)
 	fmt.Fprintf(w, "[AGENT END] %s | task=%s | model=%s | duration=%.0fs | %s\n",
 		time.Now().Format("2006-01-02 15:04:05"), slug, model, d.Seconds(), status)
 }
+
+// GenerateTitle uses the AI model to generate a short, branch-safe slug for a complex task.
+func GenerateTitle(ctx context.Context, model, taskDesc string) (string, error) {
+	// Instruct the model to generate a strict git branch name slug.
+	prompt := fmt.Sprintf(`You are a git branch name generator.
+I will give you a task description. You must output ONLY a valid git branch name that describes the core intent of the task.
+
+Rules:
+1. Output ONLY the branch name, no other text, no explanation, no markdown ticks.
+2. Max length: 60 characters.
+3. Use only lowercase letters, numbers, and hyphens.
+4. Do NOT include prefixes like 'feature/' or 'bugfix/' or 'chore/'.
+
+Task description:
+%s`, taskDesc)
+
+	cmd := buildCommand(ctx, model, prompt)
+
+	// We want to capture exactly what it outputs.
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	// We discard stderr to avoid logging noise, unless it fails.
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("agent error generating title: %w, stderr: %s", err, errBuf.String())
+	}
+
+	slug := strings.TrimSpace(outBuf.String())
+	slug = strings.ToLower(slug)
+
+	// Double check and sanitize just in case the model hallucinates formatting
+	slug = strings.TrimPrefix(slug, "feature/")
+	slug = strings.TrimPrefix(slug, "bugfix/")
+	slug = strings.TrimPrefix(slug, "chore/")
+	slug = strings.TrimPrefix(slug, "'")
+	slug = strings.TrimSuffix(slug, "'")
+	slug = strings.TrimPrefix(slug, "\"")
+	slug = strings.TrimSuffix(slug, "\"")
+	slug = strings.TrimPrefix(slug, "`")
+	slug = strings.TrimSuffix(slug, "`")
+
+	// If it contains spaces, replace with hyphens
+	slug = strings.ReplaceAll(slug, " ", "-")
+
+	// Filter out completely illegal characters just in case
+	var safe strings.Builder
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			safe.WriteRune(r)
+		}
+	}
+
+	finalSlug := safe.String()
+	if finalSlug == "" {
+		return "", fmt.Errorf("generated title was empty or contained no valid characters: %q", outBuf.String())
+	}
+
+	return finalSlug, nil
+}

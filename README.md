@@ -71,7 +71,7 @@ Create a markdown file with a `## Tasks` section. Each bullet becomes one task:
 | `--dry-run` | `false` | Preview the plan without executing |
 | `--sequential` | `false` | Run tasks one at a time (debug mode) |
 | `--task <slug>` | — | Run only the task matching this slug |
-| `--timeout <seconds>` | `300` | Max time per agent |
+| `--timeout <seconds>` | `3000` | Max time per agent |
 | `--verbose` | `false` | Stream agent output live to terminal |
 | `--keep-worktrees` | `false` | Keep worktrees on disk after run |
 | `--base-branch <branch>` | `main` | Branch to base worktrees on |

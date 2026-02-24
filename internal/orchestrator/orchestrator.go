@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -110,14 +111,54 @@ func Run(cfg config.Config) error {
 		}
 	}
 
+	// ── 3. Generate better slugs via AI ──────────────────────────────────
+	var needsAiSlug bool
+	for _, t := range tasks {
+		if len(t.Slug) >= 50 {
+			needsAiSlug = true
+			break
+		}
+	}
+
+	if needsAiSlug {
+		printSection("Refining branch titles...")
+		var slugWg sync.WaitGroup
+		var slugCtx = context.Background()
+
+		for i := range tasks {
+			// If the branch slug was manually provided or is reasonably short, keep it.
+			// Otherwise, if it's 50+ chars, it's probably an auto-generated sentence slug.
+			if len(tasks[i].Slug) >= 50 {
+				slugWg.Add(1)
+				go func(idx int) {
+					defer slugWg.Done()
+
+					// Provide full context to the AI for title generation
+					promptContext := tasks[idx].Title
+					if tasks[idx].Description != "" {
+						promptContext += "\n\n" + tasks[idx].Description
+					}
+
+					newSlug, err := agent.GenerateTitle(slugCtx, tasks[idx].Model, promptContext)
+					if err == nil && newSlug != "" {
+						tasks[idx].Slug = newSlug
+					} else if cfg.Verbose {
+						printWarn(fmt.Sprintf("Failed to generate AI title for task %d: %v", idx+1, err))
+					}
+				}(i)
+			}
+		}
+		slugWg.Wait()
+	}
+
 	printSection(fmt.Sprintf("Found %d task(s): %s", len(tasks), slugList(tasks)))
 
-	// ── 3. Dry run ─────────────────────────────────────────────────────────
+	// ── 4. Dry run ─────────────────────────────────────────────────────────
 	if cfg.DryRun {
 		return printDryRun(tasks, cfg)
 	}
 
-	// ── 4. Setup ───────────────────────────────────────────────────────────
+	// ── 5. Setup ───────────────────────────────────────────────────────────
 	repoRoot, err := os.Getwd()
 	if err != nil {
 		return err
@@ -218,7 +259,7 @@ func Run(cfg config.Config) error {
 			url, err := gh.CreatePR(gh.PROptions{
 				Slug:     t.Slug,
 				Branch:   entries[i].Branch,
-				Task:     t.Description,
+				Task:     t.Title,
 				LogPath:  logPath,
 				RepoRoot: repoRoot,
 			})
@@ -283,10 +324,15 @@ func runRalphLoop(cfg config.Config, task parser.Task, entry *worktree.Entry) Lo
 			printInfo(fmt.Sprintf("  [loop] %s iteration %d/%d", task.Slug, iter, maxIter))
 		}
 
+		fullTaskContext := task.Title
+		if task.Description != "" {
+			fullTaskContext += "\n\n" + task.Description
+		}
+
 		// Run worker agent
 		result := agent.Invoke(agent.InvokeOptions{
 			WorktreePath:  entry.Path,
-			Task:          task.Description,
+			Task:          fullTaskContext,
 			Model:         task.Model,
 			Timeout:       cfg.Timeout,
 			LogDir:        cfg.LogDir,
@@ -310,7 +356,7 @@ func runRalphLoop(cfg config.Config, task parser.Task, entry *worktree.Entry) Lo
 		if cfg.ReviewerModel != "" && result.Success {
 			decision, err := reviewer.Review(reviewer.Options{
 				WorktreePath: entry.Path,
-				Task:         task.Description,
+				Task:         fullTaskContext,
 				Model:        cfg.ReviewerModel,
 				WorkerOutput: result.Output,
 				Iteration:    iter,
@@ -343,7 +389,7 @@ func runRalphLoop(cfg config.Config, task parser.Task, entry *worktree.Entry) Lo
 		// Write memory files after each iteration
 		_ = memory.Write(entry.Path, memory.IterationData{
 			Iteration:     iter,
-			Task:          task.Description,
+			Task:          fullTaskContext,
 			WorkerOutput:  result.Output,
 			ReviewerNotes: reviewerNotes,
 			Status:        status,
@@ -432,7 +478,7 @@ func statusStr(success bool) string {
 func printDryRun(tasks []parser.Task, cfg config.Config) error {
 	fmt.Println(yellow("\n[MOCHI DRY RUN] The following would be executed:\n"))
 	for i, t := range tasks {
-		fmt.Printf("  Task %d: %q\n", i+1, t.Description)
+		fmt.Printf("  Task %d: %q\n", i+1, t.Title)
 		fmt.Printf("    Branch:      %s/%s\n", cfg.BranchPrefix, t.Slug)
 		fmt.Printf("    Worktree:    %s/%s\n", cfg.WorktreeDir, t.Slug)
 		fmt.Printf("    Model:       %s\n", t.Model)

@@ -40,7 +40,7 @@ func Default() Config {
 		BranchPrefix:  "feature",
 		WorktreeDir:   ".worktrees",
 		LogDir:        "logs",
-		Timeout:       300,
+		Timeout:       300000000,
 		MaxIterations: 1,
 		OutputMode:    "pr",
 		OutputDir:     "output",
