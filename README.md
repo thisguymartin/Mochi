@@ -2,7 +2,7 @@
 
 > From task file → git worktrees → AI agents → PRs
 
-MOCHI reads a markdown task list, spins up an **isolated git worktree per task**, invokes a Claude AI agent in each worktree **in parallel**, and optionally opens GitHub pull requests when agents finish.
+MOCHI reads a markdown task list, spins up an **isolated git worktree per task**, invokes an AI agent in each worktree **in parallel**, and optionally opens GitHub pull requests when agents finish.
 
 ---
 
@@ -50,13 +50,23 @@ Create a markdown file with a `## Tasks` section. Each bullet becomes one task:
 
 ---
 
-## CLI Flags
+## Commands & Flags
+
+### Commands
+
+- `mochi prune`: Remove stale worktree registrations and manifest entries.
+
+### Flags
 
 | Flag | Default | Description |
 |---|---|---|
 | `--input <file>` | `PRD.md` | Task file to read. Aliases: `--plan`, `--prd`. Auto-detects `PLAN.md`, `input.md`, etc. if default missing. |
 | `--issue <number>` | — | Pull tasks from a GitHub Issue |
-| `--model <model-id>` | `claude-sonnet-4-6` | Default Claude model |
+| `--model <model-id>` | `claude-sonnet-4-6` | Default Claude or Gemini model |
+| `--reviewer-model <model-id>` | — | Model for the reviewer agent (enables the Ralph Loop) |
+| `--max-iterations <num>` | `1` | Maximum worker iterations per task |
+| `--output-mode <mode>` | `pr` | Output mode: pr \| research-report \| audit \| knowledge-base \| issue \| file |
+| `--output-dir <dir>` | `output` | Directory for file/report outputs |
 | `--create-prs` | `false` | Push branches and open GitHub PRs |
 | `--dry-run` | `false` | Preview the plan without executing |
 | `--sequential` | `false` | Run tasks one at a time (debug mode) |
@@ -158,24 +168,25 @@ Worktrees and the manifest are cleaned up at the end of each run unless `--keep-
 
 ## Project Structure
 
-```
-ai-forge/
+```text
+mochi/
 ├── main.go                         # Entry point
 ├── cmd/
 │   └── root.go                     # CLI flags via cobra
 ├── internal/
+│   ├── agent/agent.go              # AI CLI invocation (Claude/Gemini)
 │   ├── config/config.go            # Config struct and defaults
-│   ├── parser/parser.go            # Task file parser
-│   ├── worktree/worktree.go        # Git worktree manager
-│   ├── agent/agent.go              # Claude CLI invocation
 │   ├── github/github.go            # GitHub PR + Issue integration
-│   └── orchestrator/orchestrator.go # Main run loop
+│   ├── memory/memory.go            # Ralph Loop persistence
+│   ├── orchestrator/orchestrator.go # Main run loop
+│   ├── output/output.go            # Output dispatch (PRs, files, etc)
+│   ├── parser/parser.go            # Task file parser
+│   ├── reviewer/reviewer.go        # Ralph Loop reviewer logic
+│   ├── tui/                        # Terminal UI components
+│   └── worktree/worktree.go        # Git worktree manager
 ├── config/defaults.env             # Default values reference
-├── docs/
-│   └── PLAN.md                     # Build plan and todo checklist
-├── examples/
-│   ├── PRD.md                      # Example sprint task file
-│   └── ISSUES.md                   # Example bug/issue task file
+├── docs/                           # Documentation and architecture
+├── examples/                       # Example sprint/issue task files
 └── logs/                           # Agent log output
 ```
 

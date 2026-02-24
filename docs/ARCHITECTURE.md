@@ -148,6 +148,8 @@ The `internal/output` package is designed with stubs for future modes:
 | `internal/worktree/` | Git worktree creation, removal, and manifest management. |
 | `internal/agent/` | LLM invocation logic and prompt templating. |
 | `internal/memory/` | Persistence of context between iterations (Markdown files). |
+| `internal/output/` | Output dispatch modes and results handling. |
 | `internal/parser/` | Markdown parsing for tasks and model annotations. |
 | `internal/reviewer/` | Logic for the secondary "Reviewer" LLM pass. |
 | `internal/github/` | Integration with GitHub API for issues and PRs. |
+| `internal/tui/` | Terminal UI components and visual output. |
