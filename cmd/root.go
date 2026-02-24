@@ -86,7 +86,7 @@ func init() {
 	rootCmd.Flags().StringVar(&cfg.BaseBranch, "base-branch", defaults.BaseBranch,
 		"Branch to base each worktree on")
 
-	// Ralph Loop
+	// Git  Loop
 	rootCmd.Flags().StringVar(&cfg.ReviewerModel, "reviewer-model", "",
 		"Model for the reviewer agent — enables the Ralph Loop when set (e.g. claude-opus-4-6)")
 	rootCmd.Flags().IntVar(&cfg.MaxIterations, "max-iterations", defaults.MaxIterations,

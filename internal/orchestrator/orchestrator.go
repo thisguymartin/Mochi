@@ -3,7 +3,9 @@ package orchestrator
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/thisguymartin/ai-forge/internal/agent"
@@ -23,10 +25,61 @@ type LoopResult struct {
 	FinalMemory       memory.Context
 }
 
+// checkDependencies verifies that all required external tools are present in PATH.
+// It always checks for git; checks claude or gemini based on the default model prefix;
+// and checks gh when --create-prs or --issue is used.
+// Returns a combined error listing all missing tools with install hints.
+func checkDependencies(cfg config.Config) error {
+	type tool struct {
+		name    string
+		install string
+	}
+
+	var needed []tool
+
+	needed = append(needed, tool{"git", "https://git-scm.com"})
+
+	if strings.HasPrefix(cfg.Model, "gemini-") {
+		needed = append(needed, tool{"gemini", "https://ai.google.dev/gemini-api/docs/gemini-cli"})
+	} else {
+		needed = append(needed, tool{"claude", "https://claude.ai/code"})
+	}
+
+	if cfg.CreatePRs || cfg.IssueNumber > 0 {
+		needed = append(needed, tool{"gh", "https://cli.github.com"})
+	}
+
+	var missing []tool
+	for _, t := range needed {
+		if _, err := exec.LookPath(t.name); err != nil {
+			missing = append(missing, t)
+		}
+	}
+
+	if len(missing) == 0 {
+		return nil
+	}
+
+	names := make([]string, len(missing))
+	for i, t := range missing {
+		names[i] = t.name
+	}
+	msg := fmt.Sprintf("missing required tools: %s", strings.Join(names, ", "))
+	for _, t := range missing {
+		msg += fmt.Sprintf("\n  → install %s from %s", t.name, t.install)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
 // Run is the main entry point for a MOCHI execution cycle.
 // It orchestrates parsing, worktree creation, agent invocation, PR creation, and cleanup.
 func Run(cfg config.Config) error {
 	printBanner()
+
+	// ── 0. Dependency checks ────────────────────────────────────────────────
+	if err := checkDependencies(cfg); err != nil {
+		return err
+	}
 
 	// ── 1. Resolve task source ─────────────────────────────────────────────
 	taskFile, cleanup, err := resolveTaskFile(cfg)
