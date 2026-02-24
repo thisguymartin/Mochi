@@ -97,3 +97,30 @@ func TestGetEntry_UnknownSlug(t *testing.T) {
 		t.Fatal("expected error for unknown slug, got nil")
 	}
 }
+
+func TestCreate_Collision(t *testing.T) {
+	repoRoot := setupTestRepo(t)
+	m := newTestManager(t, repoRoot)
+
+	// Switch to temp repo for manifest writes
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("cannot get cwd: %v", err)
+	}
+	if err := os.Chdir(repoRoot); err != nil {
+		t.Fatalf("cannot chdir to temp repo: %v", err)
+	}
+	defer os.Chdir(oldWd)
+
+	slug := "test-task"
+	_, err = m.Create(slug)
+	if err != nil {
+		t.Fatalf("First Create failed: %v", err)
+	}
+
+	// Second Create with same slug should fail currently, we want it to succeed
+	_, err = m.Create(slug)
+	if err != nil {
+		t.Errorf("Second Create failed: %v", err)
+	}
+}

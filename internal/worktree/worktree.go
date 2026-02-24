@@ -46,12 +46,38 @@ func (m *Manager) Create(slug string) (*Entry, error) {
 		return nil, err
 	}
 
-	branch := m.resolveBranch(fmt.Sprintf("%s/%s", m.BranchPrefix, slug))
-	path := filepath.Join(m.WorktreeDir, slug)
+	path, _ := filepath.Abs(filepath.Join(m.WorktreeDir, slug))
+
+	// 1. If it's already a worktree, reuse it
+	if isWorktree(m.RepoRoot, path) {
+		branch := getWorktreeBranch(m.RepoRoot, path)
+		if branch != "" {
+			entry := &Entry{
+				Slug:   slug,
+				Path:   path,
+				Branch: branch,
+				Status: "pending",
+			}
+			if err := m.saveEntry(entry); err != nil {
+				return nil, err
+			}
+			return entry, nil
+		}
+	}
+
+	// 2. If directory exists but not a worktree, remove it
+	if _, err := os.Stat(path); err == nil {
+		if err := os.RemoveAll(path); err != nil {
+			return nil, fmt.Errorf("cannot remove existing non-worktree directory at %q: %w", path, err)
+		}
+	}
 
 	if err := os.MkdirAll(m.WorktreeDir, 0755); err != nil {
 		return nil, fmt.Errorf("cannot create worktree dir: %w", err)
 	}
+
+	// 3. Decide branch name. If it exists, use suffix to avoid collision.
+	branch := m.resolveBranch(fmt.Sprintf("%s/%s", m.BranchPrefix, slug))
 
 	cmd := exec.Command("git", "worktree", "add", "-b", branch, path, m.BaseBranch)
 	cmd.Dir = m.RepoRoot
@@ -181,6 +207,80 @@ func branchExists(repoRoot, branch string) bool {
 	cmd.Dir = repoRoot
 	out, _ := cmd.Output()
 	return strings.TrimSpace(string(out)) != ""
+}
+
+func isWorktree(repoRoot, path string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		absPath = realPath
+	}
+
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "worktree ") {
+			gitPath := strings.TrimPrefix(line, "worktree ")
+			realGitPath, err := filepath.EvalSymlinks(gitPath)
+			if err == nil {
+				gitPath = realGitPath
+			}
+			if gitPath == absPath {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func getWorktreeBranch(repoRoot, path string) string {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		absPath = realPath
+	}
+
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(out), "\n")
+	found := false
+	for _, line := range lines {
+		if strings.HasPrefix(line, "worktree ") {
+			gitPath := strings.TrimPrefix(line, "worktree ")
+			realGitPath, err := filepath.EvalSymlinks(gitPath)
+			if err == nil {
+				gitPath = realGitPath
+			}
+			if gitPath == absPath {
+				found = true
+				continue
+			}
+		}
+		if found && strings.HasPrefix(line, "branch ") {
+			return strings.TrimPrefix(line, "branch refs/heads/")
+		}
+		if found && line == "" {
+			break
+		}
+	}
+	return ""
 }
 
 func (m *Manager) loadManifest() (map[string]Entry, error) {
