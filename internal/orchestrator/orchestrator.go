@@ -17,6 +17,7 @@ import (
 	"github.com/thisguymartin/ai-forge/internal/output"
 	"github.com/thisguymartin/ai-forge/internal/parser"
 	"github.com/thisguymartin/ai-forge/internal/reviewer"
+	"github.com/thisguymartin/ai-forge/internal/workspace"
 	"github.com/thisguymartin/ai-forge/internal/worktree"
 )
 
@@ -183,6 +184,18 @@ func Run(cfg config.Config) error {
 		printSuccess(fmt.Sprintf("%-30s (%s)", entry.Path, entry.Branch))
 	}
 
+	// ── 5b. Launch workspace (if --workspace is set) ───────────────────────
+	if cfg.Workspace != "" {
+		printSection("Launching workspace...")
+		if err := workspace.Launch(workspace.Options{
+			Mode:    cfg.Workspace,
+			Entries: entries,
+			Verbose: cfg.Verbose,
+		}); err != nil {
+			printWarn(fmt.Sprintf("Workspace launch failed: %v", err))
+		}
+	}
+
 	// ── 6. Invoke agents (via Ralph Loop) ──────────────────────────────────
 	printSection("Invoking agents...")
 	results := make([]agent.Result, len(tasks))
@@ -198,11 +211,22 @@ func Run(cfg config.Config) error {
 			printLoopResult(loopResults[i])
 		}
 	} else {
+		// Semaphore channel limits concurrent worktrees when --worktrees N is set.
+		var sem chan struct{}
+		if cfg.MaxWorktrees > 0 && cfg.MaxWorktrees < len(tasks) {
+			sem = make(chan struct{}, cfg.MaxWorktrees)
+			printInfo(fmt.Sprintf("Concurrency limited to %d worktree(s)", cfg.MaxWorktrees))
+		}
+
 		var wg sync.WaitGroup
 		for i, t := range tasks {
 			wg.Add(1)
 			go func(idx int, task parser.Task, entry *worktree.Entry) {
 				defer wg.Done()
+				if sem != nil {
+					sem <- struct{}{}        // acquire
+					defer func() { <-sem }() // release
+				}
 				printInfo(fmt.Sprintf("⟳  %-28s [%s]", task.Slug, task.Model))
 				_ = wm.UpdateStatus(task.Slug, "running")
 				loopResults[idx] = runRalphLoop(cfg, task, entry)
@@ -477,6 +501,14 @@ func statusStr(success bool) string {
 
 func printDryRun(tasks []parser.Task, cfg config.Config) error {
 	fmt.Println(yellow("\n[MOCHI DRY RUN] The following would be executed:\n"))
+
+	if cfg.MaxWorktrees > 0 {
+		fmt.Printf("  Max concurrent worktrees: %d\n\n", cfg.MaxWorktrees)
+	}
+	if cfg.Workspace != "" {
+		fmt.Printf("  Workspace mode: %s\n\n", cfg.Workspace)
+	}
+
 	for i, t := range tasks {
 		fmt.Printf("  Task %d: %q\n", i+1, t.Title)
 		fmt.Printf("    Branch:      %s/%s\n", cfg.BranchPrefix, t.Slug)

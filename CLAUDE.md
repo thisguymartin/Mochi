@@ -62,11 +62,13 @@ Task Source (PRD.md or GitHub Issue)
 
 - **`cmd/root.go`** — Cobra CLI, all flag definitions, routes to `orchestrator.Run(cfg)`
 - **`internal/config/config.go`** — `Config` struct; defaults from `config/defaults.env`
-- **`internal/parser/parser.go`** — Reads markdown, extracts `## Tasks` section; supports per-task `[model:...]` overrides; `toSlug()` creates branch-safe identifiers
+- **`internal/parser/parser.go`** — Multi-strategy task detection: 1) structured sections (`## Tasks`/`## Todo`/`## Steps`/etc. with bullets, numbered lists, checkboxes), 2) checkboxes anywhere in file, 3) whole-file fallback. Supports `[model:...]` and `[title:...]` overrides
 - **`internal/worktree/worktree.go`** — Wraps `git worktree add`; persists state to `.mochi_manifest.json` (mutex-protected); handles branch collision with `-2`, `-3` suffixes
 - **`internal/agent/agent.go`** — Routes to `claude --dangerously-skip-permissions -p <prompt>` or `gemini --model <model> -p <prompt>` based on model name prefix; writes logs to `logs/<slug>.log`; context timeout enforced
-- **`internal/orchestrator/orchestrator.go`** — Main loop: parse → create worktrees → run agents (parallel via `sync.WaitGroup` or `--sequential`) → PRs → cleanup
+- **`internal/orchestrator/orchestrator.go`** — Main loop: parse → create worktrees → run agents (parallel via `sync.WaitGroup` or `--sequential`, limited by `--worktrees N`) → workspace launch → PRs → cleanup
 - **`internal/github/github.go`** — Shells out to `git push` and `gh pr create`; fetches issue body via `gh issue view --json body`
+- **`internal/tui/model_picker.go`** — Interactive Bubble Tea model selector, triggered by `--prompt-model`
+- **`internal/workspace/workspace.go`** — Generates dynamic Zellij KDL layouts with worktree panes; launches `--workspace zellij` sessions
 
 ### Provider Detection
 
@@ -76,12 +78,18 @@ Model prefix determines CLI tool invoked (`agent.go:buildCommand`):
 
 ### Task File Format
 
-Markdown files must have a `## Tasks` section with bullet-point tasks:
+Any text file is accepted. Multi-strategy detection:
+1. Structured sections: `## Tasks` / `## Todo` / `## Action Items` / `## Steps` / `## Checklist` with bullets (`-`, `*`), numbered lists (`1.`, `2)`), or checkboxes (`- [ ]`)
+2. Checkboxes anywhere: `- [ ] task` / `- [x] done` (completed items skipped)
+3. Whole-file fallback: entire file content becomes a single task
+
 ```markdown
 ## Tasks
 - Add user authentication [model:claude-opus-4-6]
 - Fix mobile navbar bug
 ```
+
+Default model can be set via `MOCHI_MODEL` env var or `--model` flag.
 
 ## Runtime Artifacts
 

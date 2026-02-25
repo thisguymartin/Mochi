@@ -236,3 +236,124 @@ This task has a description
 		t.Errorf("tasks[0].Description = %q; want %q", tasks[0].Description, wantDesc)
 	}
 }
+
+func TestParseFile_CheckboxTasks(t *testing.T) {
+	path := writeTempFile(t, "", `# Sprint Plan
+
+## Tasks
+- [ ] Add user authentication
+- [x] Fix mobile navbar (already done)
+- [ ] Write API tests [model:claude-haiku-4-5]
+`)
+	tasks, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should only find 2 tasks (the [x] checkbox is completed and skipped)
+	if len(tasks) != 2 {
+		t.Fatalf("got %d tasks; want 2", len(tasks))
+	}
+	if tasks[0].Title != "Add user authentication" {
+		t.Errorf("tasks[0].Title = %q; want %q", tasks[0].Title, "Add user authentication")
+	}
+	if tasks[1].Title != "Write API tests" {
+		t.Errorf("tasks[1].Title = %q; want %q", tasks[1].Title, "Write API tests")
+	}
+	if tasks[1].Model != "claude-haiku-4-5" {
+		t.Errorf("tasks[1].Model = %q; want %q", tasks[1].Model, "claude-haiku-4-5")
+	}
+}
+
+func TestParseFile_NumberedList(t *testing.T) {
+	path := writeTempFile(t, "", `## Tasks
+1. Add user authentication
+2. Fix mobile navbar bug
+3. Write API tests [model:gemini-2.5-pro]
+`)
+	tasks, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("got %d tasks; want 3", len(tasks))
+	}
+	if tasks[0].Title != "Add user authentication" {
+		t.Errorf("tasks[0].Title = %q; want %q", tasks[0].Title, "Add user authentication")
+	}
+	if tasks[2].Model != "gemini-2.5-pro" {
+		t.Errorf("tasks[2].Model = %q; want %q", tasks[2].Model, "gemini-2.5-pro")
+	}
+}
+
+func TestParseFile_AlternativeSectionHeaders(t *testing.T) {
+	cases := []struct {
+		name    string
+		header  string
+		wantLen int
+	}{
+		{"Todo", "## Todo", 1},
+		{"TODO", "## TODO", 1},
+		{"Action Items", "## Action Items", 1},
+		{"Steps", "## Steps", 1},
+		{"Checklist", "## Checklist", 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := tc.header + "\n- Test task\n"
+			path := writeTempFile(t, "", content)
+			tasks, err := ParseFile(path)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(tasks) != tc.wantLen {
+				t.Fatalf("got %d tasks; want %d", len(tasks), tc.wantLen)
+			}
+			if tasks[0].Title != "Test task" {
+				t.Errorf("tasks[0].Title = %q; want %q", tasks[0].Title, "Test task")
+			}
+		})
+	}
+}
+
+func TestParseFile_CheckboxesWithoutSection(t *testing.T) {
+	path := writeTempFile(t, "", `# My Plan
+
+Here's what needs to happen:
+
+- [ ] First implement the API
+- [x] Already set up the database
+- [ ] Write integration tests
+`)
+	tasks, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Strategy 2 (checkbox scan) should find 2 incomplete checkboxes
+	if len(tasks) != 2 {
+		t.Fatalf("got %d tasks; want 2", len(tasks))
+	}
+	if tasks[0].Title != "First implement the API" {
+		t.Errorf("tasks[0].Title = %q; want %q", tasks[0].Title, "First implement the API")
+	}
+	if tasks[1].Title != "Write integration tests" {
+		t.Errorf("tasks[1].Title = %q; want %q", tasks[1].Title, "Write integration tests")
+	}
+}
+
+func TestParseFile_PlainTextFile(t *testing.T) {
+	path := writeTempFile(t, "plan-*.txt", `This is a plain text plan.
+It describes what needs to be done.
+No structured tasks here.
+`)
+	tasks, err := ParseFile(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("got %d tasks; want 1 (fallback)", len(tasks))
+	}
+	if tasks[0].Description == "" {
+		t.Error("expected non-empty description for fallback task")
+	}
+}
