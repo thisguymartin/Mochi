@@ -32,7 +32,11 @@ make build
 
 ## Task File Format
 
-Create a markdown file with a `## Tasks` section. Each bullet becomes one task:
+MOCHI accepts **any text file** as input — markdown, plain text, YAML, or anything your AI model can understand. It uses multi-strategy task detection:
+
+### Strategy 1: Structured task sections (highest priority)
+
+Tasks under recognized headings (`## Tasks`, `## Todo`, `## Action Items`, `## Steps`, `## Checklist`):
 
 ```markdown
 ## Tasks
@@ -42,11 +46,44 @@ Create a markdown file with a `## Tasks` section. Each bullet becomes one task:
 - Write API tests [model:claude-haiku-4-5]
 ```
 
-**Rules:**
-- Tasks must be under a `## Tasks` heading
-- Each task is a `- ` or `* ` bullet point
-- Lines starting with `#` or blank lines are ignored
-- Optionally annotate a per-task model with `[model:<model-id>]`
+Supports bullets (`-`, `*`), numbered lists (`1.`, `2)`), and checkboxes:
+
+```markdown
+## Todo
+- [ ] Add user authentication
+- [x] Fix mobile navbar (skipped — already done)
+- [ ] Write API tests [model:claude-haiku-4-5]
+
+1. Refactor auth module
+2. Add rate limiting [model:gemini-2.5-pro]
+```
+
+### Strategy 2: Checkboxes anywhere
+
+If no task section is found, MOCHI scans the entire file for markdown checkboxes. Completed `[x]` items are skipped:
+
+```markdown
+# Sprint Plan
+
+Some context about the project...
+
+- [ ] First implement the API
+- [x] Already set up the database
+- [ ] Write integration tests
+```
+
+### Strategy 3: Whole-file fallback
+
+If no tasks or checkboxes are detected, the entire file becomes a single task — perfect for feeding a plan document or spec directly to an AI agent:
+
+```bash
+mochi --input architecture-spec.md
+mochi --input TODO.txt
+```
+
+**Annotations** (work in any strategy):
+- `[model:<model-id>]` — per-task model override
+- `[title:<name>]` — explicit short title for the branch name
 
 ---
 
@@ -60,9 +97,11 @@ Create a markdown file with a `## Tasks` section. Each bullet becomes one task:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--input <file>` | `PRD.md` | Task file to read. Aliases: `--plan`, `--prd`. Auto-detects `PLAN.md`, `input.md`, etc. if default missing. |
+| `--input <file>` | `PRD.md` | Task file to read (any text format). Aliases: `--plan`, `--prd`. Auto-detects `PLAN.md`, `input.md`, etc. if default missing. |
 | `--issue <number>` | — | Pull tasks from a GitHub Issue |
-| `--model <model-id>` | `claude-sonnet-4-6` | Default Claude or Gemini model |
+| `--model <model-id>` | `claude-sonnet-4-6` | Default Claude or Gemini model. Override via `MOCHI_MODEL` env var. |
+| `--prompt-model` | `false` | Show interactive TUI model picker before running |
+| `--worktrees <N>` | `0` (unlimited) | Max concurrent worktrees. Useful for resource-constrained machines. |
 | `--reviewer-model <model-id>` | — | Model for the reviewer agent (enables the Ralph Loop) |
 | `--max-iterations <num>` | `1` | Maximum worker iterations per task |
 | `--output-mode <mode>` | `pr` | Output mode: pr \| research-report \| audit \| knowledge-base \| issue \| file |
@@ -75,6 +114,7 @@ Create a markdown file with a `## Tasks` section. Each bullet becomes one task:
 | `--verbose` | `false` | Stream agent output live to terminal |
 | `--keep-worktrees` | `false` | Keep worktrees on disk after run |
 | `--base-branch <branch>` | `main` | Branch to base worktrees on |
+| `--workspace <mode>` | — | Launch ai-native-dev workspace with worktree panes (`zellij` \| `auto`) |
 
 ---
 
@@ -132,6 +172,40 @@ Runs only `fix-mobile-navbar` sequentially with live output streamed to terminal
 ```
 Each task uses its annotated model — Opus for the hard stuff, Haiku for the trivial.
 
+### Interactive model picker
+
+```bash
+./mochi --input PLAN.md --prompt-model
+```
+Shows a TUI model selector before running. Navigate with arrow keys or j/k, Enter to select.
+
+### Limit concurrent worktrees
+
+```bash
+./mochi --input PLAN.md --worktrees 2
+```
+If the plan has 5 tasks, only 2 agents run at a time. The rest queue up.
+
+### Launch workspace with live worktree view
+
+```bash
+./mochi --input PLAN.md --workspace zellij --keep-worktrees
+```
+Creates worktrees and launches a Zellij session with one pane per worktree. Left column shows LazyGit for each branch, right column gives you a shell inside each worktree. A "Manifest" tab auto-refreshes `.mochi_manifest.json` for live status.
+
+### Feed any file as a plan
+
+```bash
+# Plain text
+mochi --input TODO.txt
+
+# A spec document — becomes a single task
+mochi --input architecture-spec.md
+
+# YAML, JSON — whatever your model can parse
+mochi --input tasks.yaml
+```
+
 ---
 
 ## What MOCHI Creates
@@ -163,6 +237,8 @@ Worktrees and the manifest are cleaned up at the end of each run unless `--keep-
 - `claude` CLI — [Claude Code](https://claude.ai/code) — required for `claude-*` models
 - `gemini` CLI — [Gemini CLI](https://github.com/google-gemini/gemini-cli) — required for `gemini-*` models
 - `gh` CLI — only required for `--create-prs` and `--issue` flags
+- `zellij` — only required for `--workspace zellij` ([zellij.dev](https://zellij.dev))
+- `lazygit` — optional, used in workspace panes for git visualization
 
 ---
 
@@ -180,9 +256,10 @@ mochi/
 │   ├── memory/memory.go            # Ralph Loop persistence
 │   ├── orchestrator/orchestrator.go # Main run loop
 │   ├── output/output.go            # Output dispatch (PRs, files, etc)
-│   ├── parser/parser.go            # Task file parser
+│   ├── parser/parser.go            # Multi-strategy task file parser
 │   ├── reviewer/reviewer.go        # Ralph Loop reviewer logic
-│   ├── tui/                        # Terminal UI components
+│   ├── tui/                        # Terminal UI (splash, model picker)
+│   ├── workspace/workspace.go      # ai-native-dev / Zellij integration
 │   └── worktree/worktree.go        # Git worktree manager
 ├── config/defaults.env             # Default values reference
 ├── docs/                           # Documentation and architecture

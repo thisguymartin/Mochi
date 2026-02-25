@@ -50,6 +50,16 @@ Supported providers (auto-detected from model name):
 			tui.PrintInfo(Version, cfg.Model, cwd)
 			return nil
 		}
+
+		// Interactive model picker
+		if cfg.PromptModel {
+			selected, err := tui.RunModelPicker(cfg.Model)
+			if err != nil {
+				return fmt.Errorf("model picker: %w", err)
+			}
+			cfg.Model = selected
+		}
+
 		tui.RunSplash()
 		return orchestrator.Run(cfg)
 	},
@@ -109,12 +119,16 @@ func init() {
 	// Model
 	rootCmd.Flags().StringVar(&cfg.Model, "model", defaults.Model,
 		"Default model — Claude (claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5) or Gemini (gemini-2.5-pro | gemini-2.0-flash)")
+	rootCmd.Flags().BoolVar(&cfg.PromptModel, "prompt-model", false,
+		"Show interactive model picker before running")
 
 	// Execution control
 	rootCmd.Flags().BoolVar(&cfg.DryRun, "dry-run", false,
 		"Preview what would run without making any changes")
 	rootCmd.Flags().BoolVar(&cfg.Sequential, "sequential", false,
 		"Run tasks one at a time instead of in parallel (useful for debugging)")
+	rootCmd.Flags().IntVar(&cfg.MaxWorktrees, "worktrees", defaults.MaxWorktrees,
+		"Max concurrent worktrees (0 = unlimited, matches task count)")
 	rootCmd.Flags().StringVar(&cfg.TaskFilter, "task", "",
 		"Run only the task matching this slug (e.g. fix-mobile-navbar)")
 	rootCmd.Flags().IntVar(&cfg.Timeout, "timeout", defaults.Timeout,
@@ -131,6 +145,10 @@ func init() {
 		"Keep worktrees on disk after the run (default: remove them)")
 	rootCmd.Flags().StringVar(&cfg.BaseBranch, "base-branch", defaults.BaseBranch,
 		"Branch to base each worktree on")
+
+	// Workspace (ai-native-dev integration)
+	rootCmd.Flags().StringVar(&cfg.Workspace, "workspace", "",
+		"Launch ai-native-dev workspace with worktree panes (zellij | auto)")
 
 	// Git  Loop
 	rootCmd.Flags().StringVar(&cfg.ReviewerModel, "reviewer-model", "",
