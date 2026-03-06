@@ -2,6 +2,8 @@
 
 > From any source → git worktrees → AI agents → PRs
 
+> 🚧 **Note:** This project is still under active development. Expect breaking changes, incomplete features, and rough edges.
+
 MOCHI reads a task source (a file or any custom source plugin), spins up an **isolated git worktree per task**, invokes an AI agent in each worktree **in parallel**, and optionally opens GitHub pull requests when agents finish.
 
 ---
