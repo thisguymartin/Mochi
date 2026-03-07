@@ -33,6 +33,8 @@ type Config struct {
 	OutputMode    string // pr | research-report | audit | knowledge-base | issue | file
 	OutputDir     string // directory for file/report outputs
 
+	// Grove integration
+	LaunchGrove bool // launch Grove workspace after run completes (implies KeepWorktrees)
 }
 
 // Default returns a Config with sensible defaults.
