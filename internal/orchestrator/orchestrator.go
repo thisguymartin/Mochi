@@ -292,6 +292,24 @@ func Run(cfg config.Config) error {
 	// ── 10. Summary ────────────────────────────────────────────────────────
 	printSummary(results)
 
+	// ── 11. Launch Grove if requested ─────────────────────────────────────
+	if cfg.LaunchGrove {
+		grovePath, err := exec.LookPath("grove")
+		if err != nil {
+			printWarn("grove not found in PATH — skipping Grove launch")
+			printInfo("Install Grove from https://github.com/thisguymartin/grove")
+		} else {
+			printSection("Launching Grove workspace...")
+			cmd := exec.Command(grovePath, repoRoot)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				printWarn(fmt.Sprintf("Grove exited with error: %v", err))
+			}
+		}
+	}
+
 	// Exit non-zero if any task failed (CI-compatible)
 	for _, r := range results {
 		if !r.Success {

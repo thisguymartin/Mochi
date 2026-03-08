@@ -81,6 +81,11 @@ Supported providers (auto-detected from model name):
 			cfg.Model = selected
 		}
 
+		// --grove implies --keep-worktrees (worktrees must persist for Grove)
+		if cfg.LaunchGrove {
+			cfg.KeepWorktrees = true
+		}
+
 		tui.RunSplash()
 		return orchestrator.Run(cfg)
 	},
@@ -378,6 +383,8 @@ func init() {
 	// Worktree
 	rootCmd.Flags().BoolVar(&cfg.KeepWorktrees, "keep-worktrees", false,
 		"Keep worktrees on disk after the run (default: remove them)")
+	rootCmd.Flags().BoolVar(&cfg.LaunchGrove, "grove", false,
+		"Launch Grove workspace after run completes (implies --keep-worktrees)")
 	rootCmd.Flags().StringVar(&cfg.BaseBranch, "base-branch", defaults.BaseBranch,
 		"Branch to base each worktree on")
 
