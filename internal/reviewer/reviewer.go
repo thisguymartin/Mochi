@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/thisguymartin/ai-forge/internal/provider"
 )
 
 // Options configures a single reviewer invocation.
@@ -76,8 +79,8 @@ func Review(opts Options) (Decision, error) {
 
 	var outBuf bytes.Buffer
 	if opts.Verbose {
-		cmd.Stdout = &multiWriter{&outBuf, os.Stdout}
-		cmd.Stderr = &multiWriter{&outBuf, os.Stderr}
+		cmd.Stdout = io.MultiWriter(&outBuf, os.Stdout)
+		cmd.Stderr = io.MultiWriter(&outBuf, os.Stderr)
 	} else {
 		cmd.Stdout = &outBuf
 		cmd.Stderr = &outBuf
@@ -138,10 +141,7 @@ func buildReviewPrompt(opts Options) (string, error) {
 }
 
 func buildCommand(ctx context.Context, model, prompt string) *exec.Cmd {
-	if strings.HasPrefix(model, "gemini-") {
-		return exec.CommandContext(ctx, "gemini", "--model", model, "-p", prompt)
-	}
-	return exec.CommandContext(ctx, "claude", "--dangerously-skip-permissions", "-p", prompt)
+	return provider.BuildCommand(ctx, model, prompt)
 }
 
 func truncate(s string, maxLen int) string {
@@ -167,13 +167,3 @@ func slugify(s string) string {
 	return strings.TrimRight(b.String(), "-")
 }
 
-// multiWriter writes to two io.Writers.
-type multiWriter struct {
-	a, b interface{ Write([]byte) (int, error) }
-}
-
-func (m *multiWriter) Write(p []byte) (int, error) {
-	m.a.Write(p)
-	m.b.Write(p)
-	return len(p), nil
-}

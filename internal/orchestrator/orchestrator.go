@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,11 +15,16 @@ import (
 	gh "github.com/thisguymartin/ai-forge/internal/github"
 	"github.com/thisguymartin/ai-forge/internal/memory"
 	"github.com/thisguymartin/ai-forge/internal/output"
+	"github.com/thisguymartin/ai-forge/internal/provider"
 	"github.com/thisguymartin/ai-forge/internal/reviewer"
 	"github.com/thisguymartin/ai-forge/internal/source"
 	"github.com/thisguymartin/ai-forge/internal/tui"
 	"github.com/thisguymartin/ai-forge/internal/worktree"
 )
+
+// ErrTasksFailed is returned when one or more tasks did not complete successfully.
+// The run summary is already printed to the terminal; callers should not echo this error.
+var ErrTasksFailed = errors.New("one or more tasks failed")
 
 // LoopResult captures the outcome of a full Ralph Loop run for one task.
 type LoopResult struct {
@@ -30,8 +36,32 @@ type LoopResult struct {
 // lookPath is a package-level variable wrapping exec.LookPath so tests can swap it.
 var lookPath = exec.LookPath
 
+// Orchestrator runs the MOCHI execution cycle.
+// Construct with New, optionally call WithSource, then call Run.
+type Orchestrator struct {
+	cfg    config.Config
+	source source.Source // nil = auto-resolve from cfg.InputFile
+}
+
+// New creates an Orchestrator with the given configuration.
+func New(cfg config.Config) *Orchestrator {
+	return &Orchestrator{cfg: cfg}
+}
+
+// WithSource overrides the task source, bypassing --input flag resolution.
+// Implement source.Source to inject custom sources (MCP, API, database, etc.).
+func (o *Orchestrator) WithSource(s source.Source) *Orchestrator {
+	o.source = s
+	return o
+}
+
+// Run is a convenience wrapper for New(cfg).Run().
+func Run(cfg config.Config) error {
+	return New(cfg).Run()
+}
+
 // checkDependencies verifies that all required external tools are present in PATH.
-// It always checks for git; checks claude or gemini based on the default model prefix;
+// It always checks for git; checks the model provider CLI based on model prefix;
 // and checks gh when --create-prs is used.
 // Returns a combined error listing all missing tools with install hints.
 func checkDependencies(cfg config.Config) error {
@@ -44,11 +74,8 @@ func checkDependencies(cfg config.Config) error {
 
 	needed = append(needed, tool{"git", "https://git-scm.com"})
 
-	if strings.HasPrefix(cfg.Model, "gemini-") {
-		needed = append(needed, tool{"gemini", "https://ai.google.dev/gemini-api/docs/gemini-cli"})
-	} else {
-		needed = append(needed, tool{"claude", "https://claude.ai/code"})
-	}
+	providerTool := provider.ToolForModel(cfg.Model)
+	needed = append(needed, tool{providerTool.Name, providerTool.Install})
 
 	if cfg.CreatePRs {
 		needed = append(needed, tool{"gh", "https://cli.github.com"})
@@ -76,20 +103,24 @@ func checkDependencies(cfg config.Config) error {
 	return fmt.Errorf("%s", msg)
 }
 
-// Run is the main entry point for a MOCHI execution cycle.
-// It orchestrates source fetching, worktree creation, agent invocation, PR creation, and cleanup.
-func Run(cfg config.Config) error {
+// Run executes the full MOCHI cycle.
+func (o *Orchestrator) Run() error {
+	cfg := o.cfg
 	tui.SetVerbose(cfg.Verbose)
 
-	// ── 0. Dependency checks ────────────────────────────────────────────────
+	// ── 1. Dependency checks ───────────────────────────────────────────────
 	if err := checkDependencies(cfg); err != nil {
 		return err
 	}
 
-	// ── 1. Resolve source and fetch tasks ─────────────────────────────────
-	src, err := ResolveSource(cfg)
-	if err != nil {
-		return err
+	// ── 2. Resolve source and fetch tasks ─────────────────────────────────
+	src := o.source
+	if src == nil {
+		var err error
+		src, err = ResolveSource(cfg)
+		if err != nil {
+			return err
+		}
 	}
 
 	tasks, err := src.FetchTasks()
@@ -112,7 +143,7 @@ func Run(cfg config.Config) error {
 		}
 	}
 
-	// ── 3. Generate better slugs via AI ──────────────────────────────────
+	// ── 3. Generate better slugs via AI ────────────────────────────────────
 	var needsAiSlug bool
 	for _, t := range tasks {
 		if len(t.Slug) >= 50 {
@@ -124,7 +155,7 @@ func Run(cfg config.Config) error {
 	if needsAiSlug {
 		printSection("Refining branch titles...")
 		var slugWg sync.WaitGroup
-		var slugCtx = context.Background()
+		slugCtx := context.Background()
 
 		for i := range tasks {
 			if len(tasks[i].Slug) >= 50 {
@@ -168,7 +199,7 @@ func Run(cfg config.Config) error {
 
 	wm := worktree.NewManager(repoRoot, cfg.BaseBranch, cfg.BranchPrefix, cfg.WorktreeDir)
 
-	// ── 5. Create worktrees ────────────────────────────────────────────────
+	// ── 6. Create worktrees ────────────────────────────────────────────────
 	printSection("Creating worktrees...")
 	entries := make([]*worktree.Entry, 0, len(tasks))
 	for _, t := range tasks {
@@ -181,7 +212,7 @@ func Run(cfg config.Config) error {
 		printSuccess(fmt.Sprintf("%-30s (%s)", entry.Path, entry.Branch))
 	}
 
-	// ── 6. Invoke agents (via Ralph Loop) ──────────────────────────────────
+	// ── 7. Invoke agents (via Ralph Loop) ──────────────────────────────────
 	printSection("Invoking agents...")
 	results := make([]agent.Result, len(tasks))
 	loopResults := make([]LoopResult, len(tasks))
@@ -223,7 +254,7 @@ func Run(cfg config.Config) error {
 		wg.Wait()
 	}
 
-	// ── 7. Post-loop output dispatch ───────────────────────────────────────
+	// ── 8. Post-loop output dispatch ────────────────────────────────────────
 	if cfg.OutputMode != "" && cfg.OutputMode != string(output.ModePR) {
 		printSection(fmt.Sprintf("Writing output (%s)...", cfg.OutputMode))
 		for i, t := range tasks {
@@ -248,7 +279,7 @@ func Run(cfg config.Config) error {
 		}
 	}
 
-	// ── 8. Create PRs ──────────────────────────────────────────────────────
+	// ── 9. Create PRs ───────────────────────────────────────────────────────
 	if cfg.CreatePRs && cfg.OutputMode == string(output.ModePR) {
 		printSection("Creating pull requests...")
 		for i, t := range tasks {
@@ -279,7 +310,7 @@ func Run(cfg config.Config) error {
 		}
 	}
 
-	// ── 9. Cleanup worktrees ───────────────────────────────────────────────
+	// ── 10. Cleanup worktrees ──────────────────────────────────────────────
 	if !cfg.KeepWorktrees {
 		printSection("Cleaning up worktrees...")
 		for _, t := range tasks {
@@ -289,10 +320,10 @@ func Run(cfg config.Config) error {
 		}
 	}
 
-	// ── 10. Summary ────────────────────────────────────────────────────────
+	// ── 11. Summary ────────────────────────────────────────────────────────
 	printSummary(results)
 
-	// ── 11. Launch Grove if requested ─────────────────────────────────────
+	// ── 12. Launch Grove if requested ──────────────────────────────────────
 	if cfg.LaunchGrove {
 		grovePath, err := exec.LookPath("grove")
 		if err != nil {
@@ -310,13 +341,12 @@ func Run(cfg config.Config) error {
 		}
 	}
 
-	// Exit non-zero if any task failed (CI-compatible)
+	// Return ErrTasksFailed for CI — the summary is already printed above.
 	for _, r := range results {
 		if !r.Success {
-			os.Exit(1)
+			return ErrTasksFailed
 		}
 	}
-
 	return nil
 }
 

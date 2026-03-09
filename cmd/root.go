@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
@@ -17,7 +19,7 @@ import (
 const Version = "0.2.0"
 
 var (
-	cfg      config.Config
+	cfg       config.Config
 	forceFlag bool
 )
 
@@ -30,7 +32,8 @@ and optionally opens GitHub pull requests for every completed task.
 
 Supported providers (auto-detected from model name):
   claude  claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5
-  gemini  gemini-2.5-pro  | gemini-2.0-flash   | gemini-1.5-pro`,
+  gemini  gemini-2.5-pro  | gemini-2.0-flash   | gemini-1.5-pro
+  codex   gpt-* | o1* | o3* | o4* | codex-*`,
 	Example: `  # Run with a file (entire content becomes the task context)
   mochi --input examples/PRD.md
 
@@ -62,7 +65,10 @@ Supported providers (auto-detected from model name):
   mochi worktree remove fix-mobile-navbar
 
   # Remove all worktrees
-  mochi worktree clean`,
+  mochi worktree clean
+
+  # Run a command inside a task worktree in a floating pane (tmux)
+  mochi pane run --task fix-mobile-navbar --cmd "go test ./..." --mode popup`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// If no task source was explicitly provided, show the info panel and exit.
 		hasInput := cmd.Flags().Changed("prd") || cmd.Flags().Changed("input") || cmd.Flags().Changed("plan")
@@ -87,7 +93,13 @@ Supported providers (auto-detected from model name):
 		}
 
 		tui.RunSplash()
-		return orchestrator.Run(cfg)
+		if err := orchestrator.Run(cfg); err != nil {
+			if errors.Is(err, orchestrator.ErrTasksFailed) {
+				os.Exit(1) // summary already printed; avoid duplicate error message
+			}
+			return err
+		}
+		return nil
 	},
 }
 
@@ -337,6 +349,132 @@ var wtCleanCmd = &cobra.Command{
 	},
 }
 
+var wtAddCmd = &cobra.Command{
+	Use:     "add <slug>",
+	Aliases: []string{"create", "new"},
+	Short:   "Create a new worktree",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		slug := args[0]
+		repoRoot, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		defaults := config.Default()
+		wm := worktree.NewManager(repoRoot, defaults.BaseBranch, defaults.BranchPrefix, defaults.WorktreeDir)
+
+		entry, err := wm.Create(slug)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("  %s  %s\n", tui.SuccessStyle.Render("created"), slug)
+		fmt.Printf("  Path: %s\n", entry.Path)
+		fmt.Printf("  Branch: %s\n", entry.Branch)
+		return nil
+	},
+}
+
+var wtEnterCmd = &cobra.Command{
+	Use:     "enter <slug>",
+	Aliases: []string{"shell", "cd"},
+	Short:   "Open a shell in the worktree",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		slug := args[0]
+		repoRoot, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		defaults := config.Default()
+		wm := worktree.NewManager(repoRoot, defaults.BaseBranch, defaults.BranchPrefix, defaults.WorktreeDir)
+
+		entry, err := wm.GetEntry(slug)
+		if err != nil {
+			return err
+		}
+
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/bash"
+		}
+
+		c := exec.Command(shell)
+		c.Dir = entry.Path
+		c.Stdin = os.Stdin
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+
+		fmt.Printf("Entering %s...\n", entry.Path)
+		return c.Run()
+	},
+}
+
+var wtZellijCmd = &cobra.Command{
+	Use:   "zellij",
+	Short: "Launch Zellij with tabs for all worktrees",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		zellijPath, err := exec.LookPath("zellij")
+		if err != nil {
+			return fmt.Errorf("zellij not found in PATH")
+		}
+
+		repoRoot, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		defaults := config.Default()
+		wm := worktree.NewManager(repoRoot, defaults.BaseBranch, defaults.BranchPrefix, defaults.WorktreeDir)
+
+		entries, err := wm.List()
+		if err != nil {
+			return err
+		}
+
+		layoutContent := generateZellijLayout(repoRoot, entries)
+		tmpFile, err := os.CreateTemp("", "mochi-layout-*.kdl")
+		if err != nil {
+			return fmt.Errorf("failed to create temp layout file: %w", err)
+		}
+		defer os.Remove(tmpFile.Name())
+
+		if _, err := tmpFile.WriteString(layoutContent); err != nil {
+			return fmt.Errorf("failed to write layout file: %w", err)
+		}
+		tmpFile.Close()
+
+		c := exec.Command(zellijPath, "--layout", tmpFile.Name())
+		c.Stdin = os.Stdin
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+
+		return c.Run()
+	},
+}
+
+func generateZellijLayout(repoRoot string, entries []worktree.Entry) string {
+	layout := `layout {
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        children
+        pane size=2 borderless=true {
+            plugin location="zellij:status-bar"
+        }
+    }
+`
+	// Add ROOT tab
+	layout += fmt.Sprintf("    tab name=\"ROOT\" cwd=\"%s\" {\n        pane\n    }\n", repoRoot)
+
+	// Add worktree tabs
+	for _, entry := range entries {
+		layout += fmt.Sprintf("    tab name=\"%s\" cwd=\"%s\" {\n        pane\n    }\n", entry.Slug, entry.Path)
+	}
+	layout += "}\n"
+	return layout
+}
+
 // Execute is the entry point called by main.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
@@ -358,7 +496,7 @@ func init() {
 
 	// Model
 	rootCmd.Flags().StringVar(&cfg.Model, "model", defaults.Model,
-		"Default model — Claude (claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5) or Gemini (gemini-2.5-pro | gemini-2.0-flash)")
+		"Default model — Claude (claude-*), Gemini (gemini-*), or Codex (gpt-*, o1/o3/o4, codex-*)")
 	rootCmd.Flags().BoolVar(&cfg.PromptModel, "prompt-model", false,
 		"Show interactive model picker before running")
 
@@ -439,5 +577,10 @@ func init() {
 	worktreeCmd.AddCommand(wtStatusCmd)
 	worktreeCmd.AddCommand(wtRemoveCmd)
 	worktreeCmd.AddCommand(wtCleanCmd)
+	worktreeCmd.AddCommand(wtAddCmd)
+	worktreeCmd.AddCommand(wtEnterCmd)
+	worktreeCmd.AddCommand(wtZellijCmd)
 	rootCmd.AddCommand(worktreeCmd)
+
+	rootCmd.AddCommand(paneCmd)
 }

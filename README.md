@@ -105,6 +105,7 @@ If `--input` defaults to `PRD.md` and that file doesn't exist, MOCHI searches fo
 | `mochi worktree status` | `wt status` | Show worktrees with disk-existence check |
 | `mochi worktree remove <slug...>` | `wt rm` | Remove specific worktrees by slug |
 | `mochi worktree clean` | `wt nuke` | Remove ALL tracked worktrees |
+| `mochi pane run --task <slug> --cmd "<command>"` | | Run a shell command inside a task worktree (tmux popup/split or shell fallback) |
 
 ### Flags
 
@@ -131,7 +132,7 @@ If `--input` defaults to `PRD.md` and that file doesn't exist, MOCHI searches fo
 
 ## Models
 
-The provider is auto-detected from the model name prefix (`claude-*` or `gemini-*`).
+The provider is auto-detected from the model name prefix (`claude-*`, `gemini-*`, or OpenAI-style `gpt-*`/`o*`/`codex-*`).
 
 **Claude** (requires `claude` CLI)
 
@@ -148,6 +149,12 @@ The provider is auto-detected from the model name prefix (`claude-*` or `gemini-
 | `gemini-2.5-pro` | Complex reasoning, large context tasks (default) |
 | `gemini-2.0-flash` | Fast, cost-effective general purpose |
 | `gemini-1.5-pro` | Long context, multimodal tasks |
+
+**Codex** (requires `codex` CLI)
+
+| Model Prefix | Use Case |
+|---|---|
+| `gpt-*`, `o1*`, `o3*`, `o4*`, `codex-*` | OpenAI Codex-driven coding tasks |
 
 ---
 
@@ -217,6 +224,15 @@ mochi worktree clean
 
 # Clean up stale registrations after a crash
 mochi prune
+```
+
+### Run commands in task panes
+```bash
+# Auto backend: tmux popup if available, otherwise run in current shell
+mochi pane run --task fix-mobile-navbar --cmd "go test ./..." --mode popup
+
+# Force tmux split pane
+mochi pane run --task fix-mobile-navbar --cmd "tail -f logs/fix-mobile-navbar.log" --mode split --backend tmux
 ```
 
 ---

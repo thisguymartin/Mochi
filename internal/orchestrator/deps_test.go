@@ -101,3 +101,24 @@ func TestCheckDependencies_GeminiModel(t *testing.T) {
 		t.Errorf("error should mention gemini: %v", err)
 	}
 }
+
+func TestCheckDependencies_CodexModel(t *testing.T) {
+	origLookPath := lookPath
+	defer func() { lookPath = origLookPath }()
+
+	lookPath = func(name string) (string, error) {
+		if name == "codex" {
+			return "", fmt.Errorf("not found")
+		}
+		return "/usr/bin/" + name, nil
+	}
+
+	cfg := config.Config{Model: "gpt-5-codex"}
+	err := checkDependencies(cfg)
+	if err == nil {
+		t.Fatal("expected error when codex is missing, got nil")
+	}
+	if !strings.Contains(err.Error(), "codex") {
+		t.Errorf("error should mention codex: %v", err)
+	}
+}

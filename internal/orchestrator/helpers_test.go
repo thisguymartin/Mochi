@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"testing"
 
-	"github.com/thisguymartin/ai-forge/internal/config"
 	"github.com/thisguymartin/ai-forge/internal/source"
 )
 
@@ -75,26 +74,5 @@ func TestStatusStr_True(t *testing.T) {
 func TestStatusStr_False(t *testing.T) {
 	if got := statusStr(false); got != "failed" {
 		t.Errorf("statusStr(false) = %q; want %q", got, "failed")
-	}
-}
-
-func TestLoopEnabled_NoReviewerNoLoop(t *testing.T) {
-	cfg := config.Config{ReviewerModel: "", MaxIterations: 1}
-	if loopEnabled(cfg) {
-		t.Error("loopEnabled should be false with no reviewer and maxIterations=1")
-	}
-}
-
-func TestLoopEnabled_WithReviewer(t *testing.T) {
-	cfg := config.Config{ReviewerModel: "claude-opus-4-6", MaxIterations: 1}
-	if !loopEnabled(cfg) {
-		t.Error("loopEnabled should be true with reviewer set")
-	}
-}
-
-func TestLoopEnabled_WithIterations(t *testing.T) {
-	cfg := config.Config{ReviewerModel: "", MaxIterations: 3}
-	if !loopEnabled(cfg) {
-		t.Error("loopEnabled should be true with maxIterations > 1")
 	}
 }

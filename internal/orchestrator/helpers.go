@@ -1,7 +1,8 @@
 package orchestrator
 
 import (
-	"github.com/thisguymartin/ai-forge/internal/config"
+	"strings"
+
 	"github.com/thisguymartin/ai-forge/internal/source"
 )
 
@@ -21,14 +22,7 @@ func slugList(tasks []source.Task) string {
 	for i, t := range tasks {
 		parts[i] = t.Slug
 	}
-	result := ""
-	for i, p := range parts {
-		if i > 0 {
-			result += ", "
-		}
-		result += p
-	}
-	return result
+	return strings.Join(parts, ", ")
 }
 
 // statusStr returns "done" or "failed" based on the success flag.
@@ -37,10 +31,4 @@ func statusStr(success bool) string {
 		return "done"
 	}
 	return "failed"
-}
-
-// loopEnabled returns true when the Ralph Loop should run more than once
-// or when a reviewer is configured.
-func loopEnabled(cfg config.Config) bool {
-	return cfg.ReviewerModel != "" || cfg.MaxIterations > 1
 }

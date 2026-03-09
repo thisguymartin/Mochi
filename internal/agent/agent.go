@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/thisguymartin/ai-forge/internal/memory"
+	"github.com/thisguymartin/ai-forge/internal/provider"
 )
 
 // InvokeOptions configures a single agent invocation.
@@ -87,26 +88,9 @@ type promptData struct {
 	MaxIterations int
 }
 
-// providerFor returns "gemini" if the model name starts with "gemini-",
-// otherwise defaults to "claude".
-func providerFor(model string) string {
-	if strings.HasPrefix(model, "gemini-") {
-		return "gemini"
-	}
-	return "claude"
-}
-
 // buildCommand constructs the provider-specific exec.Cmd for non-interactive use.
-//
-//	claude  → claude --dangerously-skip-permissions -p <prompt>
-//	gemini  → gemini --model <model> -p <prompt>
 func buildCommand(ctx context.Context, model, prompt string) *exec.Cmd {
-	switch providerFor(model) {
-	case "gemini":
-		return exec.CommandContext(ctx, "gemini", "--model", model, "-p", prompt)
-	default:
-		return exec.CommandContext(ctx, "claude", "--dangerously-skip-permissions", "-p", prompt)
-	}
+	return provider.BuildCommand(ctx, model, prompt)
 }
 
 // Invoke runs the appropriate AI CLI inside the worktree for the given task.
